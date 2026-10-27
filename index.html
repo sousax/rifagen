@@ -58,7 +58,7 @@
     <form id="entrar">
       <p><input type="email" name="email" placeholder="E-mail" autocomplete="username" required></p>
       <p><input type="password" name="senha" placeholder="Senha" autocomplete="current-password" required></p>
-      <p class="mut" id="erro-login" hidden>E-mail ou senha errados.</p>
+      <p class="mut" id="erro-login" hidden></p>
       <button class="pri">Entrar</button>
     </form>
   </section>
@@ -456,6 +456,7 @@ document.getElementById('entrar').onsubmit = async e => {
   const f = e.target;
   const { error } = await sb.auth.signInWithPassword({ email: f.email.value.trim(), password: f.senha.value });
   $('erro-login').hidden = !error;
+  $('erro-login').textContent = error?.code === 'invalid_credentials' ? 'E-mail ou senha errados.' : error?.message ?? '';
   if (!error) f.reset();
 };
 for (const b of document.querySelectorAll('.sair')) b.onclick = () => sb.auth.signOut();

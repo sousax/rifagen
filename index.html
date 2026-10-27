@@ -154,8 +154,8 @@ import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao, esm
   premiosPendentes, concorrentes, podeSortear, sortear, mensagemGanhador } from './rifa.js';
 
 // Públicas por design: a proteção é a RLS (schema.sql). Ver README, passo 4.
-const SUPABASE_URL = 'https://SEU-PROJETO.supabase.co';
-const SUPABASE_ANON_KEY = 'SUA-CHAVE-ANON';
+const SUPABASE_URL = 'https://fdibohxpiysxgxgaqxsv.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_UvCdsSgIVe0csS-KYMHorQ_AR-S7g-F';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY); // sessão fica no localStorage
 const brl = v => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });

@@ -5,3 +5,9 @@ export function grade(total, numeros) {
   const estado = new Map(numeros.map(n => [n.numero, n.estado]));
   return Array.from({ length: total }, (_, i) => ({ numero: i + 1, estado: estado.get(i + 1) ?? 'livre' }));
 }
+
+// rifa-AAAA-MM-DD.json com a data local (toISOString seria UTC e viraria o dia à noite no Brasil).
+export function nomeBackup(data) {
+  const p = n => String(n).padStart(2, '0');
+  return `rifa-${data.getFullYear()}-${p(data.getMonth() + 1)}-${p(data.getDate())}.json`;
+}

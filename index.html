@@ -39,15 +39,23 @@
   <section id="tela-grade" hidden>
     <div class="row">
       <h1 id="titulo">Rifa</h1>
-      <button class="sair">Sair</button>
+      <div><button id="abrir-config" aria-label="Configurar rifa">⚙️</button> <button class="sair">Sair</button></div>
     </div>
     <div class="grid" id="grade"></div>
+  </section>
+
+  <section id="tela-config" hidden>
+    <div class="row">
+      <h1>Configurar rifa</h1>
+      <button id="fechar-config">Voltar</button>
+    </div>
+    <button id="baixar-backup">Baixar backup</button>
   </section>
 </main>
 
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
-import { grade } from './rifa.js';
+import { grade, nomeBackup } from './rifa.js';
 
 // Públicas por design: a proteção é a RLS (schema.sql). Ver README, passo 4.
 const SUPABASE_URL = 'https://SEU-PROJETO.supabase.co';
@@ -86,6 +94,23 @@ async function carregar(session) {
 document.getElementById('entrar').onclick = () =>
   sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
 for (const b of document.querySelectorAll('.sair')) b.onclick = () => sb.auth.signOut();
+document.getElementById('abrir-config').onclick = () => mostrar('tela-config');
+document.getElementById('fechar-config').onclick = () => mostrar('tela-grade');
+
+// Backup: as 4 tabelas inteiras num JSON. <a download> + Blob baixa também no celular.
+// ponytail: sem paginação, até 1000 linhas por tabela (limite do Supabase), igual ao carregar().
+document.getElementById('baixar-backup').onclick = async () => {
+  const tabelas = ['rifa', 'compradores', 'numeros', 'ganhadores'];
+  const res = await Promise.all(tabelas.map(t => sb.from(t).select('*')));
+  const erro = res.find(r => r.error);
+  if (erro) return alert(erro.error.message);
+  const backup = Object.fromEntries(tabelas.map((t, i) => [t, res[i].data]));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }));
+  a.download = nomeBackup(new Date());
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
 
 // Dispara INITIAL_SESSION ao abrir, SIGNED_IN na volta do Google e SIGNED_OUT ao sair.
 // setTimeout: não chamar o supabase de dentro do callback (trava o lock de auth).

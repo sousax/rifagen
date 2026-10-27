@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao, linkWhatsApp, mensagemCobranca } from './rifa.js';
+import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao, esmaecidos, linkWhatsApp, mensagemCobranca } from './rifa.js';
 
 test('grade lista 1..total; sem linha é livre, com linha usa o estado dela', () => {
   const numeros = [
@@ -87,4 +87,37 @@ test('mensagemCobranca diz "tudo pago" quando não há reservados', () => {
 test('mensagemCobranca sem data do sorteio omite a data', () => {
   assert.equal(mensagemCobranca({ nome: 'Bia', numeros: [{ numero: 1, estado: 'pago' }], preco: 10, dataSorteio: null }),
     'Oi Bia! Seus números da rifa: 1. Tudo pago, obrigado!');
+});
+
+test('esmaecidos: busca por parte do nome ou do telefone esmaece quem não bate', () => {
+  const compradores = [
+    { id: 1, nome: 'José Silva', telefone: '5511987654321' },
+    { id: 2, nome: 'Maria', telefone: '5521912345678' },
+  ];
+  const numeros = [
+    { numero: 1, estado: 'pago', comprador_id: 1 },
+    { numero: 2, estado: 'reservado', comprador_id: 2 },
+    { numero: 4, estado: 'reservado', comprador_id: 1 },
+  ];
+  const dim = termo => [...esmaecidos(5, numeros, compradores, termo, 'todos')].sort((a, b) => a - b);
+  assert.deepEqual(dim(''), []);
+  assert.deepEqual(dim('  '), []);
+  assert.deepEqual(dim('jose'), [2, 3, 5]); // sem acento e sem diferenciar maiúsculas
+  assert.deepEqual(dim('MAR'), [1, 3, 4, 5]);
+  assert.deepEqual(dim('(21) 91234'), [1, 3, 4, 5]); // telefone com máscara
+  assert.deepEqual(dim('xyz'), [1, 2, 3, 4, 5]);
+});
+
+test('esmaecidos: filtro esmaece os outros estados e combina com a busca', () => {
+  const compradores = [{ id: 1, nome: 'Ana', telefone: '5511987654321' }, { id: 2, nome: 'Bia', telefone: '5511911112222' }];
+  const numeros = [
+    { numero: 1, estado: 'pago', comprador_id: 1 },
+    { numero: 2, estado: 'reservado', comprador_id: 1 },
+    { numero: 3, estado: 'pago', comprador_id: 2 },
+  ];
+  const dim = (termo, filtro) => [...esmaecidos(4, numeros, compradores, termo, filtro)].sort((a, b) => a - b);
+  assert.deepEqual(dim('', 'livre'), [1, 2, 3]);
+  assert.deepEqual(dim('', 'reservado'), [1, 3, 4]);
+  assert.deepEqual(dim('', 'pago'), [2, 4]);
+  assert.deepEqual(dim('ana', 'pago'), [2, 3, 4]);
 });

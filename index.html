@@ -18,6 +18,8 @@
   .n { aspect-ratio:1; padding:0; font-weight:600; background:var(--livre); }
   .n.reservado { background:var(--res); } .n.pago { background:var(--pago); color:#fff; }
   .n.sel { outline:3px solid #2563eb; background:#dbeafe; }
+  .n.dim { opacity:.25; }
+  #filtros { gap:4px; } #filtros button { flex:1; padding:6px 0; } #filtros button[aria-pressed=true] { background:var(--tx); color:#fff; }
   .cards > div { flex:1; background:#fff; border-radius:14px; padding:12px; box-shadow:0 1px 2px #0001; }
   .money { font-size:22px; font-weight:700; }
   input, textarea { font:inherit; width:100%; padding:10px; border:1px solid #d1d5db; border-radius:10px; background:#fff; }
@@ -62,6 +64,13 @@
     <div class="row cards">
       <div><div class="mut">Arrecadado</div><div class="money" id="arrecadado"></div></div>
       <div><div class="mut">A receber</div><div class="money" id="receber"></div></div>
+    </div>
+    <input id="busca" type="search" placeholder="Buscar comprador (nome ou telefone)" autocomplete="off">
+    <div class="row" id="filtros" style="margin:10px 0">
+      <button data-filtro="todos">Todos</button>
+      <button data-filtro="livre">Livres</button>
+      <button data-filtro="reservado">Reserv.</button>
+      <button data-filtro="pago">Pagos</button>
     </div>
     <div class="grid" id="grade"></div>
 
@@ -118,7 +127,7 @@
 
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
-import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao, linkWhatsApp, mensagemCobranca } from './rifa.js';
+import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao, esmaecidos, linkWhatsApp, mensagemCobranca } from './rifa.js';
 
 // Públicas por design: a proteção é a RLS (schema.sql). Ver README, passo 4.
 const SUPABASE_URL = 'https://SEU-PROJETO.supabase.co';
@@ -134,6 +143,7 @@ function mostrar(id) {
 const $ = id => document.getElementById(id);
 let dados; // { rifa, numeros, compradores } do último carregar
 const sel = new Set(); // números livres selecionados para registrar
+let filtro = 'todos';
 
 async function carregar(session) {
   if (!session) return mostrar('tela-login');
@@ -163,9 +173,17 @@ function desenhar() {
   $('arrecadado').textContent = brl(t.arrecadado);
   $('receber').textContent = brl(t.receber);
   const dono = new Map(numeros.map(n => [n.numero, n.comprador_id]));
-  $('grade').replaceChildren(...grade(rifa.total, numeros).map(({ numero, estado }) => {
+  const g = grade(rifa.total, numeros);
+  const rotulo = { todos: 'Todos', livre: 'Livres', reservado: 'Reserv.', pago: 'Pagos' };
+  for (const b of $('filtros').children) {
+    const f = b.dataset.filtro;
+    b.textContent = f === 'todos' ? rotulo[f] : `${rotulo[f]} ${g.filter(n => n.estado === f).length}`;
+    b.setAttribute('aria-pressed', f === filtro);
+  }
+  const dim = esmaecidos(rifa.total, numeros, compradores, $('busca').value, filtro);
+  $('grade').replaceChildren(...g.map(({ numero, estado }) => {
     const b = document.createElement('button');
-    b.className = `n ${estado}${sel.has(numero) ? ' sel' : ''}`;
+    b.className = `n ${estado}${sel.has(numero) ? ' sel' : ''}${dim.has(numero) ? ' dim' : ''}`;
     b.textContent = numero;
     b.setAttribute('aria-label', `${numero} ${estado}`);
     if (estado === 'livre') {
@@ -219,6 +237,8 @@ async function mudarEstado(numero, estado) {
 }
 
 $('limpar').onclick = () => { sel.clear(); desenhar(); };
+$('busca').oninput = () => desenhar();
+for (const b of $('filtros').children) b.onclick = () => { filtro = b.dataset.filtro; desenhar(); };
 
 $('registrar').onclick = () => {
   $('registrar-titulo').textContent = `Registrar ${[...sel].sort((a, b) => a - b).join(', ')}`;

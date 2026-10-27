@@ -58,7 +58,36 @@ export function sortear(numeros, ganhadores, aleatorio = aleatorioCripto) {
   return c.length ? c[aleatorio(c.length)] : null;
 }
 
-// Telefone já normalizado (só dígitos com 55).
-export function linkGanhador(telefone, numero, premio) {
-  return `https://wa.me/${telefone}?text=${encodeURIComponent(`Seu número ${numero} ganhou o ${premio}!`)}`;
+// Aviso ao ganhador pelo WhatsApp (usar com linkWhatsApp).
+export function mensagemGanhador(numero, premio) {
+  return `Seu número ${numero} ganhou o ${premio}!`;
+}
+
+// Conversa no WhatsApp com a mensagem pronta. Telefone já normalizado (só dígitos com 55).
+export function linkWhatsApp(telefone, mensagem) {
+  return `https://wa.me/${telefone}?text=${encodeURIComponent(mensagem)}`;
+}
+
+// Cobrança: números do comprador, data do sorteio ('AAAA-MM-DD' ou null) e quanto falta pagar ou "tudo pago".
+export function mensagemCobranca({ nome, numeros, preco, dataSorteio }) {
+  const lista = ns => ns.map(n => n.numero).sort((a, b) => a - b).join(', ');
+  const reservados = numeros.filter(n => n.estado === 'reservado');
+  const data = dataSorteio ? ` (sorteio ${dataSorteio.split('-').reverse().join('/')})` : '';
+  const falta = (reservados.length * preco).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  return `Oi ${nome}! Seus números da rifa${data}: ${lista(numeros)}.`
+    + (reservados.length ? ` Falta pagar ${falta} (${lista(reservados)}).` : ' Tudo pago, obrigado!');
+}
+
+// Busca/filtro: números esmaecidos (nunca escondidos) para um termo e um filtro ('todos' | 'livre' | 'reservado' | 'pago').
+// Termo bate com parte do nome (sem acento/maiúsculas) ou, se tiver dígitos, com parte do telefone. Livre nunca bate com busca.
+export function esmaecidos(total, numeros, compradores, termo, filtro) {
+  const simples = s => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+  const q = simples(termo), d = q.replace(/\D/g, '');
+  const batem = new Set(compradores
+    .filter(c => simples(c.nome).includes(q) || (d && c.telefone.includes(d)))
+    .map(c => c.id));
+  const dono = new Map(numeros.map(n => [n.numero, n.comprador_id]));
+  return new Set(grade(total, numeros)
+    .filter(({ numero, estado }) => (filtro !== 'todos' && filtro !== estado) || (q && !batem.has(dono.get(numero))))
+    .map(n => n.numero));
 }

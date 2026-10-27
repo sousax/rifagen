@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao, premiosPendentes, concorrentes, sortear, linkGanhador } from './rifa.js';
+import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao, esmaecidos, linkWhatsApp, mensagemCobranca,
+  premiosPendentes, concorrentes, sortear, mensagemGanhador } from './rifa.js';
 
 test('grade lista 1..total; sem linha é livre, com linha usa o estado dela', () => {
   const numeros = [
@@ -100,7 +101,61 @@ test('sortear sem aleatório injetado usa crypto e devolve um concorrente', () =
   for (let i = 0; i < 20; i++) assert.ok([5, 9].includes(sortear(numeros, [])));
 });
 
-test('linkGanhador abre o WhatsApp do comprador com "Seu número X ganhou o <prêmio>!"', () => {
-  assert.equal(linkGanhador('5511987654321', 7, 'TV & som'),
-    'https://wa.me/5511987654321?text=Seu%20n%C3%BAmero%207%20ganhou%20o%20TV%20%26%20som!');
+test('mensagemGanhador: "Seu número X ganhou o <prêmio>!"', () => {
+  assert.equal(mensagemGanhador(7, 'TV e bicicleta'), 'Seu número 7 ganhou o TV e bicicleta!');
+});
+
+test('linkWhatsApp abre a conversa com a mensagem codificada', () => {
+  assert.equal(linkWhatsApp('5511987654321', 'Oi Ana! Nº 7 & 8?'),
+    'https://wa.me/5511987654321?text=Oi%20Ana!%20N%C2%BA%207%20%26%208%3F');
+});
+
+test('mensagemCobranca lista os números, a data do sorteio e quanto falta pagar', () => {
+  const numeros = [{ numero: 12, estado: 'reservado' }, { numero: 3, estado: 'pago' }, { numero: 7, estado: 'reservado' }];
+  assert.equal(mensagemCobranca({ nome: 'Ana', numeros, preco: 10, dataSorteio: '2026-12-24' }),
+    'Oi Ana! Seus números da rifa (sorteio 24/12/2026): 3, 7, 12. Falta pagar R$ 20,00 (7, 12).');
+});
+
+test('mensagemCobranca diz "tudo pago" quando não há reservados', () => {
+  const numeros = [{ numero: 5, estado: 'pago' }, { numero: 2, estado: 'pago' }];
+  assert.equal(mensagemCobranca({ nome: 'Bia', numeros, preco: 12.5, dataSorteio: '2026-01-05' }),
+    'Oi Bia! Seus números da rifa (sorteio 05/01/2026): 2, 5. Tudo pago, obrigado!');
+});
+
+test('mensagemCobranca sem data do sorteio omite a data', () => {
+  assert.equal(mensagemCobranca({ nome: 'Bia', numeros: [{ numero: 1, estado: 'pago' }], preco: 10, dataSorteio: null }),
+    'Oi Bia! Seus números da rifa: 1. Tudo pago, obrigado!');
+});
+
+test('esmaecidos: busca por parte do nome ou do telefone esmaece quem não bate', () => {
+  const compradores = [
+    { id: 1, nome: 'José Silva', telefone: '5511987654321' },
+    { id: 2, nome: 'Maria', telefone: '5521912345678' },
+  ];
+  const numeros = [
+    { numero: 1, estado: 'pago', comprador_id: 1 },
+    { numero: 2, estado: 'reservado', comprador_id: 2 },
+    { numero: 4, estado: 'reservado', comprador_id: 1 },
+  ];
+  const dim = termo => [...esmaecidos(5, numeros, compradores, termo, 'todos')].sort((a, b) => a - b);
+  assert.deepEqual(dim(''), []);
+  assert.deepEqual(dim('  '), []);
+  assert.deepEqual(dim('jose'), [2, 3, 5]); // sem acento e sem diferenciar maiúsculas
+  assert.deepEqual(dim('MAR'), [1, 3, 4, 5]);
+  assert.deepEqual(dim('(21) 91234'), [1, 3, 4, 5]); // telefone com máscara
+  assert.deepEqual(dim('xyz'), [1, 2, 3, 4, 5]);
+});
+
+test('esmaecidos: filtro esmaece os outros estados e combina com a busca', () => {
+  const compradores = [{ id: 1, nome: 'Ana', telefone: '5511987654321' }, { id: 2, nome: 'Bia', telefone: '5511911112222' }];
+  const numeros = [
+    { numero: 1, estado: 'pago', comprador_id: 1 },
+    { numero: 2, estado: 'reservado', comprador_id: 1 },
+    { numero: 3, estado: 'pago', comprador_id: 2 },
+  ];
+  const dim = (termo, filtro) => [...esmaecidos(4, numeros, compradores, termo, filtro)].sort((a, b) => a - b);
+  assert.deepEqual(dim('', 'livre'), [1, 2, 3]);
+  assert.deepEqual(dim('', 'reservado'), [1, 3, 4]);
+  assert.deepEqual(dim('', 'pago'), [2, 4]);
+  assert.deepEqual(dim('ana', 'pago'), [2, 3, 4]);
 });

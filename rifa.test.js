@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao, esmaecidos, linkWhatsApp, mensagemCobranca,
-  premiosPendentes, concorrentes, sortear, mensagemGanhador } from './rifa.js';
+  premiosPendentes, concorrentes, podeSortear, sortear, mensagemGanhador } from './rifa.js';
 
 test('grade lista 1..total; sem linha é livre, com linha usa o estado dela', () => {
   const numeros = [
@@ -94,6 +94,20 @@ test('sortear: só pagos sem prêmio concorrem; reservados e já premiados ficam
   assert.equal(sortear(numeros, ganhadores, ultimo), 4);
   assert.deepEqual(vistos, [2]); // o aleatório escolhe entre 2 concorrentes
   assert.equal(sortear([{ numero: 2, estado: 'reservado' }], [], primeiro), null);
+});
+
+test('podeSortear: só com um concorrente diferente para cada prêmio pendente', () => {
+  const premios = ['TV', 'Bicicleta'];
+  const pagos = [{ numero: 1, estado: 'pago' }, { numero: 2, estado: 'pago' }];
+  assert.equal(podeSortear(premios, pagos, []), true);
+  // menos pagos que prêmios: bloqueia já o primeiro sorteio
+  assert.equal(podeSortear(premios, [pagos[0], { numero: 2, estado: 'reservado' }], []), false);
+  // o ganhador do 2º não concorre ao 1º: sobra 1 pago para 1 prêmio
+  assert.equal(podeSortear(premios, pagos, [{ posicao: 2, numero: 1 }]), true);
+  assert.equal(podeSortear(premios, [pagos[0]], [{ posicao: 2, numero: 1 }]), false);
+  // todos os prêmios sorteados
+  assert.equal(podeSortear(premios, pagos, [{ posicao: 2, numero: 1 }, { posicao: 1, numero: 2 }]), false);
+  assert.equal(podeSortear([], pagos, []), false);
 });
 
 test('sortear sem aleatório injetado usa crypto e devolve um concorrente', () => {

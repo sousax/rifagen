@@ -49,6 +49,13 @@ export function concorrentes(numeros, ganhadores) {
   return numeros.filter(n => n.estado === 'pago' && !premiados.has(n.numero)).map(n => n.numero).sort((a, b) => a - b);
 }
 
+// O sorteio pode acontecer: há prêmio pendente e um concorrente diferente para cada um deles.
+// Checado antes do 1º prêmio também: com menos pagos que prêmios, nenhum é sorteado.
+export function podeSortear(premios, numeros, ganhadores) {
+  const pendentes = premiosPendentes(premios, ganhadores).length;
+  return pendentes > 0 && concorrentes(numeros, ganhadores).length >= pendentes;
+}
+
 // Índice uniforme em 0..n-1. ponytail: módulo de um uint32 tem viés < n/2³², desprezível para uma rifa.
 const aleatorioCripto = n => crypto.getRandomValues(new Uint32Array(1))[0] % n;
 

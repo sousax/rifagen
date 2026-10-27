@@ -11,3 +11,12 @@ export function nomeBackup(data) {
   const p = n => String(n).padStart(2, '0');
   return `rifa-${data.getFullYear()}-${p(data.getMonth() + 1)}-${p(data.getDate())}.json`;
 }
+
+// Mensagem de erro da configuração, ou null se ela pode ser salva.
+export function validarConfiguracao({ total, preco }, numeros) {
+  if (!Number.isInteger(total) || total <= 0) return 'O total deve ser um número inteiro maior que zero.';
+  if (!(preco > 0)) return 'O preço deve ser maior que zero.';
+  const maior = numeros.reduce((m, n) => Math.max(m, n.numero), 0);
+  if (total < maior) return `O total não pode ser menor que ${maior}, o maior número em uso.`;
+  return null;
+}

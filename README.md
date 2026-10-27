@@ -68,3 +68,42 @@ Commit e push. São públicas por design; quem protege os dados é a RLS. **Nunc
 GitHub → repo → **Settings** → **Pages** → *Source*: **Deploy from a branch** → branch `main`, pasta `/ (root)` → **Save**. Em ~1 min o site está em `https://<usuario>.github.io/rifagen/`.
 
 Conferir: abrir no celular, entrar com Google, ver a grade; fechar e reabrir (continua logado); entrar com um e-mail fora da lista (vê "Sem acesso").
+
+### 6. Conferir a segurança e o ao vivo
+
+O `schema.sql` já liga o Realtime nas 4 tabelas (`alter publication supabase_realtime ...`). Para conferir: **Database** → **Publications** → `supabase_realtime` lista `rifa`, `compradores`, `numeros` e `ganhadores`.
+
+1. **Ao vivo**: abra o site em dois celulares (dois organizadores). Reserve um número num deles: o outro muda de cor e o painel atualiza sozinho, sem recarregar.
+2. **Quem está fora não lê nada**: entre com um e-mail fora de `organizadores` → aparece "Sem acesso". No **SQL Editor**:
+   ```sql
+   set role authenticated;
+   set request.jwt.claims = '{"email":"fora@exemplo.com"}';
+   select (select count(*) from rifa) r, (select count(*) from compradores) c,
+          (select count(*) from numeros) n, (select count(*) from ganhadores) g;  -- tudo 0
+   reset role;
+   ```
+3. **Número ocupado não reserva, e nada é salvo**: no celular A selecione o 5 e toque **Registrar** (painel aberto). No B registre o 5: o título do painel no A tira o 5 sozinho. Para o tudo ou nada, no **SQL Editor** (troque 5 por um número ocupado e 6 por um livre):
+   ```sql
+   set role authenticated;
+   set request.jwt.claims = '{"email":"voce@gmail.com"}';
+   select registrar('Novo', '5511911112222', array[6, 5], 'pago');  -- erro: duplicate key (numeros_pkey)
+   ```
+   Depois, numa query nova: `select count(*) from compradores where telefone = '5511911112222';` → 0, e o 6 continua livre.
+4. **Depois do sorteio, nada muda** (com um ganhador já sorteado). No **SQL Editor**, com o e-mail de um organizador:
+   ```sql
+   set role authenticated;
+   set request.jwt.claims = '{"email":"voce@gmail.com"}';
+   update rifa set preco = 1;              -- UPDATE 0
+   update compradores set nome = 'x';      -- UPDATE 0
+   update numeros set estado = 'pago';     -- UPDATE 0
+   delete from numeros;                    -- DELETE 0
+   reset role;
+   ```
+   A RLS esconde as linhas da escrita: 0 linhas afetadas, não erro. O `registrar` do item 3 (com números livres) dá erro "new row violates row-level security policy".
+5. **Ganhador não se altera pelo site**:
+   ```sql
+   set role authenticated;
+   set request.jwt.claims = '{"email":"voce@gmail.com"}';
+   update ganhadores set numero = numero;  -- erro: permission denied for table ganhadores
+   ```
+   Rode de novo com `delete from ganhadores;` no lugar do `update` → mesmo erro. (O erro desfaz também o `set role`.)

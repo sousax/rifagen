@@ -116,3 +116,30 @@ create policy ganhadores_ler on public.ganhadores for select to authenticated
   using ((select public.is_organizador()));
 create policy ganhadores_criar on public.ganhadores for insert to authenticated
   with check ((select public.is_organizador()));
+
+-- ---------- registrar: comprador + números, tudo ou nada ----------
+-- security invoker (padrão): roda como o usuário, então a RLS acima vale aqui dentro.
+-- Uma chamada rpc = uma transação: número já ocupado (23505) desfaz também o comprador novo.
+create function public.registrar(nome text, telefone text, numeros integer[], estado text) returns void
+language plpgsql set search_path = '' as $$
+declare
+  comprador bigint;
+begin
+  if coalesce(cardinality(numeros), 0) = 0 then
+    raise exception 'Nenhum número selecionado.';
+  end if;
+  -- Telefone já cadastrado reaproveita o comprador (e o nome dele).
+  insert into public.compradores (nome, telefone) values (registrar.nome, registrar.telefone)
+    on conflict on constraint compradores_telefone_key do nothing;
+  select c.id into strict comprador from public.compradores c where c.telefone = registrar.telefone;
+  insert into public.numeros (numero, comprador_id, estado)
+    select n, comprador, registrar.estado from unnest(numeros) n;
+end $$;
+
+revoke execute on function public.registrar from public, anon;
+grant execute on function public.registrar to authenticated;
+
+-- ---------- ao vivo ----------
+-- Realtime (postgres_changes) manda as mudanças destas tabelas para quem pode lê-las pela RLS.
+-- ponytail: DELETE não passa pela RLS no Realtime; o evento leva só a PK (ex.: o número liberado).
+alter publication supabase_realtime add table public.rifa, public.compradores, public.numeros, public.ganhadores;

@@ -32,6 +32,15 @@
   h2 { font-size:16px; margin:0 0 8px; }
   .err { color:#b91c1c; font-size:14px; margin-top:6px; }
   [hidden] { display:none !important; }
+  .n.ganhou { outline:3px solid #a16207; }
+  #ganhadores { list-style:none; padding:0; margin:0 0 12px; background:#fff; border-radius:14px; box-shadow:0 1px 2px #0001; }
+  #ganhadores li { display:flex; gap:8px; align-items:center; justify-content:space-between; padding:10px 12px; border-top:1px solid #f3f4f6; }
+  #ganhadores li:first-child { border-top:0; }
+  #ganhadores a { color:#15803d; font-weight:600; text-decoration:none; white-space:nowrap; }
+  #sortear { width:100%; margin-bottom:10px; }
+  .sorteio-n { font-size:72px; font-weight:800; text-align:center; margin:12px 0; font-variant-numeric:tabular-nums; }
+  #sorteio-cartao { text-align:center; font-weight:600; }
+  fieldset { border:0; padding:0; margin:0; }
 </style>
 </head>
 <body>
@@ -55,10 +64,16 @@
       <h1 id="titulo">Rifa</h1>
       <div><button id="abrir-config" aria-label="Configurar rifa">⚙️</button> <button class="sair">Sair</button></div>
     </div>
+    <section id="bloco-ganhadores" hidden>
+      <h2>Ganhadores</h2>
+      <ul id="ganhadores"></ul>
+    </section>
     <div class="row cards">
       <div><div class="mut">Arrecadado</div><div class="money" id="arrecadado"></div></div>
       <div><div class="mut">A receber</div><div class="money" id="receber"></div></div>
     </div>
+    <button class="pri" id="sortear" hidden></button>
+    <p class="mut" id="sorteio-aviso" hidden></p>
     <div class="grid" id="grade"></div>
 
     <div class="row barra" id="barra" hidden>
@@ -83,6 +98,13 @@
         <button value="" formnovalidate style="width:100%">Cancelar</button>
       </form>
     </dialog>
+
+    <dialog id="painel-sorteio">
+      <h2 id="sorteio-premio"></h2>
+      <div class="sorteio-n" id="sorteio-numero" aria-live="off"></div>
+      <p id="sorteio-cartao" role="status"></p>
+      <form method="dialog"><button class="pri" id="sorteio-fechar" style="width:100%" hidden>Fechar</button></form>
+    </dialog>
   </section>
 
   <section id="tela-config" hidden>
@@ -90,14 +112,15 @@
       <h1>Configurar rifa</h1>
       <button id="fechar-config">Voltar</button>
     </div>
-    <form id="form-config">
+    <form id="form-config"><fieldset id="cf-campos">
+      <p class="mut" id="cf-encerrada" hidden>Rifa encerrada: depois do sorteio nada pode ser alterado.</p>
       <label for="cf-total">Total de números</label><input id="cf-total" type="number" min="1" step="1" required>
       <label for="cf-preco">Preço por número (R$)</label><input id="cf-preco" type="number" min="0.01" step="0.01" required>
       <label for="cf-data">Data do sorteio</label><input id="cf-data" type="date">
       <label for="cf-premios">Prêmios (um por linha, na ordem: 1º, 2º, …)</label><textarea id="cf-premios" rows="4"></textarea>
       <div id="cf-err" class="err" role="alert"></div>
-      <div class="row" style="margin-top:10px"><button class="pri">Salvar</button></div>
-    </form>
+      <div class="row" style="margin-top:10px"><button class="pri" id="cf-salvar">Salvar</button></div>
+    </fieldset></form>
     <hr>
     <button id="baixar-backup">Baixar backup</button>
   </section>
@@ -105,7 +128,8 @@
 
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
-import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao } from './rifa.js';
+import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao,
+  premiosPendentes, concorrentes, sortear, linkGanhador } from './rifa.js';
 
 // Públicas por design: a proteção é a RLS (schema.sql). Ver README, passo 4.
 const SUPABASE_URL = 'https://SEU-PROJETO.supabase.co';
@@ -119,42 +143,82 @@ function mostrar(id) {
 }
 
 const $ = id => document.getElementById(id);
-let dados; // { rifa, numeros, compradores } do último carregar
+let dados; // { rifa, numeros, compradores, ganhadores } do último carregar
 const sel = new Set(); // números livres selecionados para registrar
+// Existindo qualquer ganhador, a rifa fica só leitura (a RLS também recusa as escritas).
+const encerrada = () => dados.ganhadores.length > 0;
 
 async function carregar(session) {
   if (!session) return mostrar('tela-login');
   // ponytail: numeros sem paginação; o Supabase devolve até 1000 linhas por request, pagine se a rifa passar disso.
-  const [rifa, numeros, compradores] = await Promise.all([
+  const [rifa, numeros, compradores, ganhadores] = await Promise.all([
     sb.from('rifa').select('total, preco, data_sorteio, premios').maybeSingle(),
-    sb.from('numeros').select('numero, estado'),
+    sb.from('numeros').select('numero, estado, comprador_id'),
     sb.from('compradores').select('id, nome, telefone').order('nome'),
+    sb.from('ganhadores').select('posicao, numero').order('posicao'),
   ]);
-  const erro = rifa.error || numeros.error || compradores.error;
+  const erro = rifa.error || numeros.error || compradores.error || ganhadores.error;
   if (erro) return alert(erro.message);
   if (!rifa.data) { // RLS esconde tudo de quem não é organizador
     for (const el of document.querySelectorAll('.email')) el.textContent = session.user.email;
     return mostrar('tela-sem-acesso');
   }
-  dados = { rifa: rifa.data, numeros: numeros.data, compradores: compradores.data };
+  dados = { rifa: rifa.data, numeros: numeros.data, compradores: compradores.data, ganhadores: ganhadores.data };
   desenhar();
   mostrar('tela-grade');
+}
+
+// Comprador dono de um número.
+const dono = numero => {
+  const n = dados.numeros.find(n => n.numero === numero);
+  return dados.compradores.find(c => c.id === n?.comprador_id);
+};
+const nomePremio = posicao => `${posicao}º prêmio · ${dados.rifa.premios[posicao - 1]}`;
+
+function desenharSorteio() {
+  const { rifa, numeros, ganhadores } = dados;
+  $('bloco-ganhadores').hidden = !ganhadores.length;
+  $('ganhadores').replaceChildren(...ganhadores.map(g => {
+    const c = dono(g.numero);
+    const li = document.createElement('li');
+    li.append(`${nomePremio(g.posicao)} — Nº ${g.numero} · ${c?.nome ?? '?'}`);
+    if (c) {
+      const a = document.createElement('a');
+      a.href = linkGanhador(c.telefone, g.numero, rifa.premios[g.posicao - 1]);
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = 'WhatsApp';
+      li.append(a);
+    }
+    return li;
+  }));
+  const pendentes = premiosPendentes(rifa.premios, ganhadores);
+  const pagos = concorrentes(numeros, ganhadores).length;
+  const possivel = pendentes.length > 0 && pagos >= pendentes.length;
+  $('sortear').hidden = !possivel;
+  if (possivel) $('sortear').textContent = `Sortear ${nomePremio(pendentes[0])}`;
+  $('sorteio-aviso').hidden = !pendentes.length || possivel;
+  $('sorteio-aviso').textContent = `Sorteio indisponível: ${pagos} número${pagos === 1 ? '' : 's'} pago${pagos === 1 ? '' : 's'} `
+    + `para ${pendentes.length} prêmio${pendentes.length === 1 ? '' : 's'}. Cada prêmio precisa de um número pago diferente.`;
 }
 
 function desenhar() {
   const { rifa, numeros, compradores } = dados;
   const ocupados = new Set(numeros.map(n => n.numero));
+  const premiados = new Set(dados.ganhadores.map(g => g.numero));
+  if (encerrada()) sel.clear();
   for (const n of sel) if (ocupados.has(n) || n > rifa.total) sel.delete(n); // ocupado por outro organizador ou fora do total novo
+  desenharSorteio();
   const t = totais(numeros, rifa.preco);
   $('titulo').textContent = `Rifa · ${brl(rifa.preco)}`;
   $('arrecadado').textContent = brl(t.arrecadado);
   $('receber').textContent = brl(t.receber);
   $('grade').replaceChildren(...grade(rifa.total, numeros).map(({ numero, estado }) => {
     const b = document.createElement('button');
-    b.className = `n ${estado}${sel.has(numero) ? ' sel' : ''}`;
+    b.className = `n ${estado}${sel.has(numero) ? ' sel' : ''}${premiados.has(numero) ? ' ganhou' : ''}`;
     b.textContent = numero;
-    b.setAttribute('aria-label', `${numero} ${estado}`);
-    if (estado === 'livre') {
+    b.setAttribute('aria-label', `${numero} ${estado}${premiados.has(numero) ? ' ganhador' : ''}`);
+    if (estado === 'livre' && !encerrada()) {
       b.setAttribute('aria-pressed', sel.has(numero));
       b.onclick = () => { sel.has(numero) ? sel.delete(numero) : sel.add(numero); desenhar(); };
     }
@@ -222,6 +286,8 @@ $('abrir-config').onclick = () => {
   $('cf-data').value = dados.rifa.data_sorteio ?? '';
   $('cf-premios').value = dados.rifa.premios.join('\n');
   $('cf-err').textContent = '';
+  $('cf-campos').disabled = $('cf-salvar').hidden = encerrada(); // backup continua disponível
+  $('cf-encerrada').hidden = !encerrada();
   mostrar('tela-config');
 };
 $('fechar-config').onclick = () => mostrar('tela-grade');
@@ -242,6 +308,52 @@ $('form-config').onsubmit = async e => {
   if (error) return $('cf-err').textContent = error.message;
   carregar((await sb.auth.getSession()).data.session);
 };
+
+// Sorteio: um prêmio por toque, do último ao 1º. Grava o ganhador ao revelar.
+$('sortear').onclick = async () => {
+  $('sortear').disabled = true; // toque duplo não sorteia duas vezes
+  try { await sortearProximo(); } finally { $('sortear').disabled = false; }
+};
+async function sortearProximo() {
+  const session = (await sb.auth.getSession()).data.session;
+  await carregar(session); // dados frescos: outro organizador pode ter sorteado ou marcado pagos
+  if ($('sortear').hidden) return;
+  const { rifa, numeros, ganhadores } = dados;
+  if (!ganhadores.length) {
+    const reservados = numeros.filter(n => n.estado === 'reservado').length;
+    if (!confirm(`${reservados} número${reservados === 1 ? '' : 's'} reservado${reservados === 1 ? '' : 's'} não vão concorrer. `
+      + 'Sortear mesmo assim?\n\nBaixe um backup (⚙️) antes de sortear.')) return;
+  }
+  const posicao = premiosPendentes(rifa.premios, ganhadores)[0];
+  const giro = concorrentes(numeros, ganhadores);
+  const numero = sortear(numeros, ganhadores);
+
+  $('sorteio-premio').textContent = nomePremio(posicao);
+  $('sorteio-cartao').textContent = '';
+  $('sorteio-fechar').hidden = true;
+  $('painel-sorteio').showModal();
+  // ~3 s girando e desacelerando: cada passo 15% mais lento que o anterior.
+  for (let espera = 50, total = 0; total < 3000; total += espera, espera *= 1.15) {
+    $('sorteio-numero').textContent = giro[Math.floor(Math.random() * giro.length)]; // só visual
+    await new Promise(r => setTimeout(r, espera));
+  }
+  $('sorteio-numero').textContent = numero;
+
+  const { error } = await sb.from('ganhadores').insert({ posicao, numero });
+  if (error?.code === '23505') { // outro organizador sorteou este prêmio agora: vale o dele
+    $('sorteio-numero').textContent = '';
+    $('sorteio-cartao').textContent = 'Outro organizador sorteou este prêmio agora. O resultado dele foi mantido.';
+  } else if (error) {
+    $('sorteio-numero').textContent = '';
+    $('sorteio-cartao').textContent = `Nada foi gravado: ${error.message}`;
+  } else {
+    $('sorteio-cartao').textContent = `Nº ${numero} · ${dono(numero)?.nome ?? '?'} · ${rifa.premios[posicao - 1]}`;
+  }
+  $('sorteio-fechar').hidden = false;
+  await carregar(session);
+}
+// Durante o giro o painel não fecha (Esc).
+$('painel-sorteio').oncancel = e => { if ($('sorteio-fechar').hidden) e.preventDefault(); };
 
 document.getElementById('entrar').onclick = () =>
   sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });

@@ -17,6 +17,12 @@
   .grid { display:grid; grid-template-columns:repeat(5, 1fr); gap:6px; }
   .n { aspect-ratio:1; padding:0; font-weight:600; background:var(--livre); }
   .n.reservado { background:var(--res); } .n.pago { background:var(--pago); color:#fff; }
+  input, textarea { font:inherit; width:100%; padding:10px; border:1px solid #d1d5db; border-radius:10px; background:#fff; }
+  label { display:block; font-size:13px; color:var(--mut); margin:10px 0 4px; }
+  h2 { font-size:16px; margin:0 0 8px; }
+  dialog { width:100%; max-width:480px; margin:auto auto 0; border:0; border-radius:18px 18px 0 0; padding:16px; max-height:90vh; }
+  dialog::backdrop { background:#0006; }
+  .err { color:#b91c1c; font-size:14px; margin-top:6px; }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -39,15 +45,27 @@
   <section id="tela-grade" hidden>
     <div class="row">
       <h1 id="titulo">Rifa</h1>
-      <button class="sair">Sair</button>
+      <span><button id="abrir-config" aria-label="Configurar rifa">⚙️</button> <button class="sair">Sair</button></span>
     </div>
     <div class="grid" id="grade"></div>
   </section>
 </main>
 
+<dialog id="config">
+  <form id="form-config">
+    <h2>Configurar rifa</h2>
+    <label for="cf-total">Total de números</label><input id="cf-total" type="number" min="1" step="1" required>
+    <label for="cf-preco">Preço por número (R$)</label><input id="cf-preco" type="number" min="0.01" step="0.01" required>
+    <label for="cf-data">Data do sorteio</label><input id="cf-data" type="date">
+    <label for="cf-premios">Prêmios (um por linha, na ordem: 1º, 2º, …)</label><textarea id="cf-premios" rows="4"></textarea>
+    <div id="cf-err" class="err" role="alert"></div>
+    <div class="row" style="margin-top:10px"><button type="button" id="fechar-config">Cancelar</button><button class="pri">Salvar</button></div>
+  </form>
+</dialog>
+
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
-import { grade } from './rifa.js';
+import { grade, validarConfiguracao } from './rifa.js';
 
 // Públicas por design: a proteção é a RLS (schema.sql). Ver README, passo 4.
 const SUPABASE_URL = 'https://SEU-PROJETO.supabase.co';
@@ -56,6 +74,8 @@ const SUPABASE_ANON_KEY = 'SUA-CHAVE-ANON';
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY); // sessão fica no localStorage
 const brl = v => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+let rifa; // última leitura do banco, usada para preencher a ⚙️
+
 function mostrar(id) {
   for (const s of document.querySelectorAll('main > section')) s.hidden = s.id !== id;
 }
@@ -63,17 +83,18 @@ function mostrar(id) {
 async function carregar(session) {
   if (!session) return mostrar('tela-login');
   // ponytail: numeros sem paginação; o Supabase devolve até 1000 linhas por request, pagine se a rifa passar disso.
-  const [rifa, numeros] = await Promise.all([
-    sb.from('rifa').select('total, preco').maybeSingle(),
+  const [r, n] = await Promise.all([
+    sb.from('rifa').select('total, preco, data_sorteio, premios').maybeSingle(),
     sb.from('numeros').select('numero, estado'),
   ]);
-  if (rifa.error || numeros.error) return alert((rifa.error || numeros.error).message);
-  if (!rifa.data) { // RLS esconde tudo de quem não é organizador
+  if (r.error || n.error) return alert((r.error || n.error).message);
+  if (!r.data) { // RLS esconde tudo de quem não é organizador
     for (const el of document.querySelectorAll('.email')) el.textContent = session.user.email;
     return mostrar('tela-sem-acesso');
   }
-  document.getElementById('titulo').textContent = `Rifa · ${brl(rifa.data.preco)}`;
-  document.getElementById('grade').replaceChildren(...grade(rifa.data.total, numeros.data).map(({ numero, estado }) => {
+  rifa = r.data;
+  document.getElementById('titulo').textContent = `Rifa · ${brl(rifa.preco)}`;
+  document.getElementById('grade').replaceChildren(...grade(rifa.total, n.data).map(({ numero, estado }) => {
     const b = document.createElement('button');
     b.className = `n ${estado}`;
     b.textContent = numero;
@@ -82,6 +103,36 @@ async function carregar(session) {
   }));
   mostrar('tela-grade');
 }
+
+const config = document.getElementById('config');
+const campo = id => document.getElementById(id);
+campo('abrir-config').onclick = () => {
+  campo('cf-total').value = rifa.total;
+  campo('cf-preco').value = rifa.preco;
+  campo('cf-data').value = rifa.data_sorteio ?? '';
+  campo('cf-premios').value = rifa.premios.join('\n');
+  campo('cf-err').textContent = '';
+  config.showModal();
+};
+campo('fechar-config').onclick = () => config.close();
+campo('form-config').onsubmit = async e => {
+  e.preventDefault();
+  const nova = {
+    total: Number(campo('cf-total').value),
+    preco: Number(campo('cf-preco').value),
+    data_sorteio: campo('cf-data').value || null,
+    premios: campo('cf-premios').value.split('\n').map(s => s.trim()).filter(Boolean),
+  };
+  // Relê os números: outro organizador pode ter registrado um número alto nesse meio tempo.
+  const n = await sb.from('numeros').select('numero, estado');
+  if (n.error) return campo('cf-err').textContent = n.error.message;
+  const erro = validarConfiguracao(nova, n.data);
+  if (erro) return campo('cf-err').textContent = erro;
+  const { error } = await sb.from('rifa').update(nova).eq('id', true);
+  if (error) return campo('cf-err').textContent = error.message;
+  config.close();
+  carregar((await sb.auth.getSession()).data.session);
+};
 
 document.getElementById('entrar').onclick = () =>
   sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });

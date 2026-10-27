@@ -35,3 +35,17 @@ export function validarConfiguracao({ total, preco }, numeros) {
   if (total < maior) return `O total não pode ser menor que ${maior}, o maior número em uso.`;
   return null;
 }
+
+// Busca/filtro: números esmaecidos (nunca escondidos) para um termo e um filtro ('todos' | 'livre' | 'reservado' | 'pago').
+// Termo bate com parte do nome (sem acento/maiúsculas) ou, se tiver dígitos, com parte do telefone. Livre nunca bate com busca.
+export function esmaecidos(total, numeros, compradores, termo, filtro) {
+  const simples = s => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+  const q = simples(termo), d = q.replace(/\D/g, '');
+  const batem = new Set(compradores
+    .filter(c => simples(c.nome).includes(q) || (d && c.telefone.includes(d)))
+    .map(c => c.id));
+  const dono = new Map(numeros.map(n => [n.numero, n.comprador_id]));
+  return new Set(grade(total, numeros)
+    .filter(({ numero, estado }) => (filtro !== 'todos' && filtro !== estado) || (q && !batem.has(dono.get(numero))))
+    .map(n => n.numero));
+}

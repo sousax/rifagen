@@ -20,3 +20,9 @@ export function normalizarTelefone(texto) {
   if ((d.length === 12 || d.length === 13) && d.startsWith('55')) return d;
   return '';
 }
+
+// rifa-AAAA-MM-DD.json com a data local (toISOString seria UTC e viraria o dia à noite no Brasil).
+export function nomeBackup(data) {
+  const p = n => String(n).padStart(2, '0');
+  return `rifa-${data.getFullYear()}-${p(data.getMonth() + 1)}-${p(data.getDate())}.json`;
+}

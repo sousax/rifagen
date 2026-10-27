@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { grade, totais, normalizarTelefone } from './rifa.js';
+import { grade, totais, normalizarTelefone, nomeBackup } from './rifa.js';
 
 test('grade lista 1..total; sem linha é livre, com linha usa o estado dela', () => {
   const numeros = [
@@ -41,4 +41,9 @@ test('normalizarTelefone devolve vazio se não há DDD + número', () => {
   assert.equal(normalizarTelefone(''), '');
   assert.equal(normalizarTelefone('98765-4321'), '');
   assert.equal(normalizarTelefone('abc'), '');
+});
+
+test('nomeBackup usa a data local do dia, com zeros à esquerda', () => {
+  // 23h30 local: em UTC já seria o dia seguinte no Brasil
+  assert.equal(nomeBackup(new Date(2026, 0, 5, 23, 30)), 'rifa-2026-01-05.json');
 });

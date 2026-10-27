@@ -19,7 +19,7 @@
   .n.reservado { background:var(--res); } .n.pago { background:var(--pago); color:#fff; }
   .n.sel { outline:3px solid #2563eb; background:#dbeafe; }
   .n.dim { opacity:.25; }
-  #filtros { gap:4px; } #filtros button { flex:1; padding:6px 0; } #filtros button[aria-pressed=true] { background:var(--tx); color:#fff; }
+  #filtros { gap:4px; } #filtros button { flex:1; padding:6px 0; font-size:14px; white-space:pre-line; } #filtros button[aria-pressed=true] { background:var(--tx); color:#fff; }
   .cards > div { flex:1; background:#fff; border-radius:14px; padding:12px; box-shadow:0 1px 2px #0001; }
   .money { font-size:22px; font-weight:700; }
   input, textarea { font:inherit; width:100%; padding:10px; border:1px solid #d1d5db; border-radius:10px; background:#fff; }
@@ -84,7 +84,7 @@
     <div class="row" id="filtros" style="margin:10px 0">
       <button data-filtro="todos">Todos</button>
       <button data-filtro="livre">Livres</button>
-      <button data-filtro="reservado">Reserv.</button>
+      <button data-filtro="reservado">Reservados</button>
       <button data-filtro="pago">Pagos</button>
     </div>
     <div class="grid" id="grade"></div>
@@ -151,7 +151,7 @@
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
 import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao, esmaecidos, linkWhatsApp, mensagemCobranca,
-  premiosPendentes, concorrentes, sortear, mensagemGanhador } from './rifa.js';
+  premiosPendentes, concorrentes, podeSortear, sortear, mensagemGanhador } from './rifa.js';
 
 // Públicas por design: a proteção é a RLS (schema.sql). Ver README, passo 4.
 const SUPABASE_URL = 'https://SEU-PROJETO.supabase.co';
@@ -172,7 +172,7 @@ const encerrada = () => dados.ganhadores.length > 0;
 let filtro = 'todos';
 
 async function carregar(session) {
-  if (!session) return mostrar('tela-login');
+  if (!session) { ouvir(null); return mostrar('tela-login'); }
   // ponytail: numeros sem paginação; o Supabase devolve até 1000 linhas por request, pagine se a rifa passar disso.
   const [rifa, numeros, compradores, ganhadores] = await Promise.all([
     sb.from('rifa').select('total, preco, data_sorteio, premios').maybeSingle(),
@@ -189,7 +189,31 @@ async function carregar(session) {
   dados = { rifa: rifa.data, numeros: numeros.data, compradores: compradores.data, ganhadores: ganhadores.data };
   desenhar();
   mostrar('tela-grade');
+  ouvir(session);
 }
+
+// Ao vivo: qualquer mudança nas 4 tabelas (de outro organizador ou do painel do Supabase) recarrega.
+// A RLS vale também aqui: só organizador recebe os eventos (README, passo 6).
+let canal, espera;
+function ouvir(session) {
+  if (!session) { if (canal) sb.removeChannel(canal); canal = null; return; }
+  sb.realtime.setAuth(session.access_token); // eventos filtrados pela RLS deste usuário
+  if (canal) return;
+  canal = sb.channel('rifa');
+  for (const table of ['rifa', 'compradores', 'numeros', 'ganhadores'])
+    canal.on('postgres_changes', { event: '*', schema: 'public', table }, aoMudar);
+  canal.subscribe();
+}
+function aoMudar() {
+  clearTimeout(espera); // várias linhas de uma vez (ex.: registrar 5 números) = um recarregar só
+  espera = setTimeout(() => {
+    if ($('painel-sorteio').open && $('sorteio-fechar').hidden) return; // girando: o sorteio recarrega no fim
+    if (!$('tela-config').hidden) return; // não tira da configuração; Voltar recarrega
+    recarregar();
+  }, 300);
+}
+
+const recarregar = async () => carregar((await sb.auth.getSession()).data.session);
 
 // Comprador dono de um número.
 const donoDe = numero => {
@@ -216,12 +240,12 @@ function desenharSorteio() {
     return li;
   }));
   const pendentes = premiosPendentes(rifa.premios, ganhadores);
-  const pagos = concorrentes(numeros, ganhadores).length;
-  const possivel = pendentes.length > 0 && pagos >= pendentes.length;
+  const possivel = podeSortear(rifa.premios, numeros, ganhadores);
+  const livres = concorrentes(numeros, ganhadores).length; // pagos que ainda não ganharam
   $('sortear').hidden = !possivel;
   if (possivel) $('sortear').textContent = `Sortear ${nomePremio(pendentes[0])}`;
   $('sorteio-aviso').hidden = !pendentes.length || possivel;
-  $('sorteio-aviso').textContent = `Sorteio indisponível: ${pagos} número${pagos === 1 ? '' : 's'} pago${pagos === 1 ? '' : 's'} `
+  $('sorteio-aviso').textContent = `Sorteio indisponível: ${livres} número${livres === 1 ? '' : 's'} pago${livres === 1 ? '' : 's'} sem prêmio `
     + `para ${pendentes.length} prêmio${pendentes.length === 1 ? '' : 's'}. Cada prêmio precisa de um número pago diferente.`;
 }
 
@@ -238,10 +262,10 @@ function desenhar() {
   $('receber').textContent = brl(t.receber);
   const dono = new Map(numeros.map(n => [n.numero, n.comprador_id]));
   const g = grade(rifa.total, numeros);
-  const rotulo = { todos: 'Todos', livre: 'Livres', reservado: 'Reserv.', pago: 'Pagos' };
+  const rotulo = { todos: 'Todos', livre: 'Livres', reservado: 'Reservados', pago: 'Pagos' };
   for (const b of $('filtros').children) {
     const f = b.dataset.filtro;
-    b.textContent = f === 'todos' ? rotulo[f] : `${rotulo[f]} ${g.filter(n => n.estado === f).length}`;
+    b.textContent = `${rotulo[f]}\n${f === 'todos' ? g.length : g.filter(n => n.estado === f).length}`;
     b.setAttribute('aria-pressed', f === filtro);
   }
   const dim = esmaecidos(rifa.total, numeros, compradores, $('busca').value, filtro);
@@ -261,6 +285,8 @@ function desenhar() {
   }));
   $('barra').hidden = !sel.size;
   $('qtd-sel').textContent = `${sel.size} selecionado${sel.size > 1 ? 's' : ''}`;
+  // Redesenha também depois de um conflito ou de mudança ao vivo: o título acompanha a seleção.
+  $('registrar-titulo').textContent = sel.size ? `Registrar ${[...sel].sort((a, b) => a - b).join(', ')}` : 'Nenhum número selecionado';
   $('nomes').replaceChildren(...compradores.map(c => new Option('', c.nome)));
   if ($('painel-comprador').open) desenharComprador();
 }
@@ -290,6 +316,7 @@ function desenharComprador() {
     return linha;
   }));
   if (!meus.length) $('comp-numeros').innerHTML = '<p class="mut">Sem números.</p>';
+  $('comp-wa').hidden = encerrada(); // só leitura: nada a cobrar
   $('comp-wa').href = linkWhatsApp(c.telefone,
     mensagemCobranca({ nome: c.nome, numeros: meus, preco: dados.rifa.preco, dataSorteio: dados.rifa.data_sorteio }));
 }
@@ -299,7 +326,7 @@ async function mudarEstado(numero, estado) {
   const q = sb.from('numeros');
   const { error } = estado === 'livre' ? await q.delete().eq('numero', numero) : await q.update({ estado }).eq('numero', numero);
   $('comp-err').textContent = error ? error.message : '';
-  await carregar((await sb.auth.getSession()).data.session); // grade, painel e comprador redesenhados
+  await recarregar(); // grade, painel e comprador redesenhados
 }
 
 $('limpar').onclick = () => { sel.clear(); desenhar(); };
@@ -307,7 +334,6 @@ $('busca').oninput = () => desenhar();
 for (const b of $('filtros').children) b.onclick = () => { filtro = b.dataset.filtro; desenhar(); };
 
 $('registrar').onclick = () => {
-  $('registrar-titulo').textContent = `Registrar ${[...sel].sort((a, b) => a - b).join(', ')}`;
   $('reg-err').textContent = '';
   $('painel-registrar').showModal();
 };
@@ -326,30 +352,22 @@ $('painel-registrar').querySelector('form').onsubmit = async e => {
   const nome = $('reg-nome').value.trim();
   const telefone = normalizarTelefone($('reg-tel').value);
   if (!telefone) return err('Telefone inválido: informe DDD + número.');
+  if (!sel.size) return err('Selecione ao menos um número livre.');
   for (const b of e.target.querySelectorAll('button')) b.disabled = true;
   try {
-    // Telefone já cadastrado reaproveita o comprador (unique(telefone)).
-    let comprador = dados.compradores.find(c => c.telefone === telefone);
-    if (!comprador) {
-      const r = await sb.from('compradores').insert({ nome, telefone }).select('id, nome, telefone').single();
-      if (r.error?.code === '23505') { // outro organizador cadastrou agora
-        comprador = (await sb.from('compradores').select('id, nome, telefone').eq('telefone', telefone).single()).data;
-      } else if (r.error) return err(r.error.message);
-      else comprador = r.data;
-    }
-    // Um insert só: a PK de numeros faz tudo ou nada.
+    // Uma transação (função registrar, schema.sql): comprador novo + números, tudo ou nada.
     const nums = [...sel];
-    const r = await sb.from('numeros').insert(nums.map(numero => ({ numero, comprador_id: comprador.id, estado })));
+    const r = await sb.rpc('registrar', { nome, telefone, numeros: nums, estado });
     if (r.error?.code === '23505') {
       const { data } = await sb.from('numeros').select('numero').in('numero', nums);
       err(`Nada foi salvo. Já ocupado: ${(data ?? []).map(n => n.numero).sort((a, b) => a - b).join(', ')}.`);
-      return carregar((await sb.auth.getSession()).data.session); // grade atrás do painel mostra o ocupado
+      return recarregar(); // grade atrás do painel mostra o ocupado
     }
     if (r.error) return err(r.error.message);
     sel.clear();
     $('painel-registrar').close();
     e.target.reset();
-    await carregar((await sb.auth.getSession()).data.session);
+    await recarregar();
   } finally {
     for (const b of e.target.querySelectorAll('button')) b.disabled = false;
   }
@@ -365,7 +383,7 @@ $('abrir-config').onclick = () => {
   $('cf-encerrada').hidden = !encerrada();
   mostrar('tela-config');
 };
-$('fechar-config').onclick = () => mostrar('tela-grade');
+$('fechar-config').onclick = () => recarregar();
 $('form-config').onsubmit = async e => {
   e.preventDefault();
   const nova = {
@@ -381,7 +399,7 @@ $('form-config').onsubmit = async e => {
   if (erro) return $('cf-err').textContent = erro;
   const { error } = await sb.from('rifa').update(nova).eq('id', true);
   if (error) return $('cf-err').textContent = error.message;
-  carregar((await sb.auth.getSession()).data.session);
+  recarregar();
 };
 
 // Sorteio: um prêmio por toque, do último ao 1º. Grava o ganhador ao revelar.
@@ -390,10 +408,9 @@ $('sortear').onclick = async () => {
   try { await sortearProximo(); } finally { $('sortear').disabled = false; }
 };
 async function sortearProximo() {
-  const session = (await sb.auth.getSession()).data.session;
-  await carregar(session); // dados frescos: outro organizador pode ter sorteado ou marcado pagos
-  if ($('sortear').hidden) return;
+  await recarregar(); // dados frescos: outro organizador pode ter sorteado ou marcado pagos
   const { rifa, numeros, ganhadores } = dados;
+  if (!podeSortear(rifa.premios, numeros, ganhadores)) return;
   if (!ganhadores.length) {
     const reservados = numeros.filter(n => n.estado === 'reservado').length;
     if (!confirm(`${reservados} número${reservados === 1 ? '' : 's'} reservado${reservados === 1 ? '' : 's'} não vão concorrer. `
@@ -425,7 +442,7 @@ async function sortearProximo() {
     $('sorteio-cartao').textContent = `Nº ${numero} · ${donoDe(numero)?.nome ?? '?'} · ${rifa.premios[posicao - 1]}`;
   }
   $('sorteio-fechar').hidden = false;
-  await carregar(session);
+  await recarregar();
 }
 // Durante o giro o painel não fecha (Esc).
 $('painel-sorteio').oncancel = e => { if ($('sorteio-fechar').hidden) e.preventDefault(); };

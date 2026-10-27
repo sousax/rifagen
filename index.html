@@ -17,10 +17,19 @@
   .grid { display:grid; grid-template-columns:repeat(5, 1fr); gap:6px; }
   .n { aspect-ratio:1; padding:0; font-weight:600; background:var(--livre); }
   .n.reservado { background:var(--res); } .n.pago { background:var(--pago); color:#fff; }
+  .n.sel { outline:3px solid #2563eb; background:#dbeafe; }
+  .cards > div { flex:1; background:#fff; border-radius:14px; padding:12px; box-shadow:0 1px 2px #0001; }
+  .money { font-size:22px; font-weight:700; }
   input, textarea { font:inherit; width:100%; padding:10px; border:1px solid #d1d5db; border-radius:10px; background:#fff; }
   label { display:block; font-size:13px; color:var(--mut); margin:10px 0 4px; }
-  h2 { font-size:16px; margin:0 0 8px; }
+  .barra { position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:480px; margin:0;
+    padding:12px 16px; background:#fff; border-radius:14px 14px 0 0; box-shadow:0 -2px 8px #0002; }
+  #tela-grade { padding-bottom:72px; }
+  dialog { width:100%; max-width:480px; margin:auto auto 0; border:0; border-radius:18px 18px 0 0; padding:16px; }
+  dialog h2 { font-size:16px; margin:0 0 8px; }
+  dialog .row button { flex:1; }
   hr { border:0; border-top:1px solid #e5e7eb; margin:16px 0; }
+  h2 { font-size:16px; margin:0 0 8px; }
   .err { color:#b91c1c; font-size:14px; margin-top:6px; }
   [hidden] { display:none !important; }
 </style>
@@ -46,7 +55,34 @@
       <h1 id="titulo">Rifa</h1>
       <div><button id="abrir-config" aria-label="Configurar rifa">⚙️</button> <button class="sair">Sair</button></div>
     </div>
+    <div class="row cards">
+      <div><div class="mut">Arrecadado</div><div class="money" id="arrecadado"></div></div>
+      <div><div class="mut">A receber</div><div class="money" id="receber"></div></div>
+    </div>
     <div class="grid" id="grade"></div>
+
+    <div class="row barra" id="barra" hidden>
+      <span id="qtd-sel"></span>
+      <button id="limpar">Limpar</button>
+      <button class="pri" id="registrar">Registrar</button>
+    </div>
+
+    <dialog id="painel-registrar">
+      <form method="dialog">
+        <h2 id="registrar-titulo"></h2>
+        <datalist id="nomes"></datalist>
+        <label for="reg-nome">Nome</label>
+        <input id="reg-nome" list="nomes" autocomplete="off" required>
+        <label for="reg-tel">Telefone</label>
+        <input id="reg-tel" type="tel" placeholder="(11) 98765-4321" required>
+        <div class="err" id="reg-err"></div>
+        <div class="row" style="margin-top:12px">
+          <button value="reservado">Reservar</button>
+          <button value="pago" class="pri">Já pagou</button>
+        </div>
+        <button value="" formnovalidate style="width:100%">Cancelar</button>
+      </form>
+    </dialog>
   </section>
 
   <section id="tela-config" hidden>
@@ -69,7 +105,7 @@
 
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
-import { grade, nomeBackup, validarConfiguracao } from './rifa.js';
+import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao } from './rifa.js';
 
 // Públicas por design: a proteção é a RLS (schema.sql). Ver README, passo 4.
 const SUPABASE_URL = 'https://SEU-PROJETO.supabase.co';
@@ -78,61 +114,132 @@ const SUPABASE_ANON_KEY = 'SUA-CHAVE-ANON';
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY); // sessão fica no localStorage
 const brl = v => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-let rifa; // última leitura do banco, usada para preencher a ⚙️
-
 function mostrar(id) {
   for (const s of document.querySelectorAll('main > section')) s.hidden = s.id !== id;
 }
 
+const $ = id => document.getElementById(id);
+let dados; // { rifa, numeros, compradores } do último carregar
+const sel = new Set(); // números livres selecionados para registrar
+
 async function carregar(session) {
   if (!session) return mostrar('tela-login');
   // ponytail: numeros sem paginação; o Supabase devolve até 1000 linhas por request, pagine se a rifa passar disso.
-  const [r, n] = await Promise.all([
+  const [rifa, numeros, compradores] = await Promise.all([
     sb.from('rifa').select('total, preco, data_sorteio, premios').maybeSingle(),
     sb.from('numeros').select('numero, estado'),
+    sb.from('compradores').select('id, nome, telefone').order('nome'),
   ]);
-  if (r.error || n.error) return alert((r.error || n.error).message);
-  if (!r.data) { // RLS esconde tudo de quem não é organizador
+  const erro = rifa.error || numeros.error || compradores.error;
+  if (erro) return alert(erro.message);
+  if (!rifa.data) { // RLS esconde tudo de quem não é organizador
     for (const el of document.querySelectorAll('.email')) el.textContent = session.user.email;
     return mostrar('tela-sem-acesso');
   }
-  rifa = r.data;
-  document.getElementById('titulo').textContent = `Rifa · ${brl(rifa.preco)}`;
-  document.getElementById('grade').replaceChildren(...grade(rifa.total, n.data).map(({ numero, estado }) => {
-    const b = document.createElement('button');
-    b.className = `n ${estado}`;
-    b.textContent = numero;
-    b.setAttribute('aria-label', `${numero} ${estado}`);
-    return b;
-  }));
+  dados = { rifa: rifa.data, numeros: numeros.data, compradores: compradores.data };
+  desenhar();
   mostrar('tela-grade');
 }
 
-const campo = id => document.getElementById(id);
-campo('abrir-config').onclick = () => {
-  campo('cf-total').value = rifa.total;
-  campo('cf-preco').value = rifa.preco;
-  campo('cf-data').value = rifa.data_sorteio ?? '';
-  campo('cf-premios').value = rifa.premios.join('\n');
-  campo('cf-err').textContent = '';
+function desenhar() {
+  const { rifa, numeros, compradores } = dados;
+  const ocupados = new Set(numeros.map(n => n.numero));
+  for (const n of sel) if (ocupados.has(n) || n > rifa.total) sel.delete(n); // ocupado por outro organizador ou fora do total novo
+  const t = totais(numeros, rifa.preco);
+  $('titulo').textContent = `Rifa · ${brl(rifa.preco)}`;
+  $('arrecadado').textContent = brl(t.arrecadado);
+  $('receber').textContent = brl(t.receber);
+  $('grade').replaceChildren(...grade(rifa.total, numeros).map(({ numero, estado }) => {
+    const b = document.createElement('button');
+    b.className = `n ${estado}${sel.has(numero) ? ' sel' : ''}`;
+    b.textContent = numero;
+    b.setAttribute('aria-label', `${numero} ${estado}`);
+    if (estado === 'livre') {
+      b.setAttribute('aria-pressed', sel.has(numero));
+      b.onclick = () => { sel.has(numero) ? sel.delete(numero) : sel.add(numero); desenhar(); };
+    }
+    return b;
+  }));
+  $('barra').hidden = !sel.size;
+  $('qtd-sel').textContent = `${sel.size} selecionado${sel.size > 1 ? 's' : ''}`;
+  $('nomes').replaceChildren(...compradores.map(c => new Option('', c.nome)));
+}
+
+$('limpar').onclick = () => { sel.clear(); desenhar(); };
+
+$('registrar').onclick = () => {
+  $('registrar-titulo').textContent = `Registrar ${[...sel].sort((a, b) => a - b).join(', ')}`;
+  $('reg-err').textContent = '';
+  $('painel-registrar').showModal();
+};
+
+// Escolher um comprador sugerido preenche o telefone dele.
+$('reg-nome').oninput = e => {
+  const c = dados.compradores.find(c => c.nome === e.target.value);
+  if (c) $('reg-tel').value = c.telefone;
+};
+
+$('painel-registrar').querySelector('form').onsubmit = async e => {
+  const estado = e.submitter?.value;
+  if (!estado) return; // Cancelar: o form method=dialog fecha
+  e.preventDefault();
+  const err = msg => { $('reg-err').textContent = msg; };
+  const nome = $('reg-nome').value.trim();
+  const telefone = normalizarTelefone($('reg-tel').value);
+  if (!telefone) return err('Telefone inválido: informe DDD + número.');
+  for (const b of e.target.querySelectorAll('button')) b.disabled = true;
+  try {
+    // Telefone já cadastrado reaproveita o comprador (unique(telefone)).
+    let comprador = dados.compradores.find(c => c.telefone === telefone);
+    if (!comprador) {
+      const r = await sb.from('compradores').insert({ nome, telefone }).select('id, nome, telefone').single();
+      if (r.error?.code === '23505') { // outro organizador cadastrou agora
+        comprador = (await sb.from('compradores').select('id, nome, telefone').eq('telefone', telefone).single()).data;
+      } else if (r.error) return err(r.error.message);
+      else comprador = r.data;
+    }
+    // Um insert só: a PK de numeros faz tudo ou nada.
+    const nums = [...sel];
+    const r = await sb.from('numeros').insert(nums.map(numero => ({ numero, comprador_id: comprador.id, estado })));
+    if (r.error?.code === '23505') {
+      const { data } = await sb.from('numeros').select('numero').in('numero', nums);
+      err(`Nada foi salvo. Já ocupado: ${(data ?? []).map(n => n.numero).sort((a, b) => a - b).join(', ')}.`);
+      return carregar((await sb.auth.getSession()).data.session); // grade atrás do painel mostra o ocupado
+    }
+    if (r.error) return err(r.error.message);
+    sel.clear();
+    $('painel-registrar').close();
+    e.target.reset();
+    await carregar((await sb.auth.getSession()).data.session);
+  } finally {
+    for (const b of e.target.querySelectorAll('button')) b.disabled = false;
+  }
+};
+
+$('abrir-config').onclick = () => {
+  $('cf-total').value = dados.rifa.total;
+  $('cf-preco').value = dados.rifa.preco;
+  $('cf-data').value = dados.rifa.data_sorteio ?? '';
+  $('cf-premios').value = dados.rifa.premios.join('\n');
+  $('cf-err').textContent = '';
   mostrar('tela-config');
 };
-campo('fechar-config').onclick = () => mostrar('tela-grade');
-campo('form-config').onsubmit = async e => {
+$('fechar-config').onclick = () => mostrar('tela-grade');
+$('form-config').onsubmit = async e => {
   e.preventDefault();
   const nova = {
-    total: Number(campo('cf-total').value),
-    preco: Number(campo('cf-preco').value),
-    data_sorteio: campo('cf-data').value || null,
-    premios: campo('cf-premios').value.split('\n').map(s => s.trim()).filter(Boolean),
+    total: Number($('cf-total').value),
+    preco: Number($('cf-preco').value),
+    data_sorteio: $('cf-data').value || null,
+    premios: $('cf-premios').value.split('\n').map(s => s.trim()).filter(Boolean),
   };
   // Relê os números: outro organizador pode ter registrado um número alto nesse meio tempo.
   const n = await sb.from('numeros').select('numero, estado');
-  if (n.error) return campo('cf-err').textContent = n.error.message;
+  if (n.error) return $('cf-err').textContent = n.error.message;
   const erro = validarConfiguracao(nova, n.data);
-  if (erro) return campo('cf-err').textContent = erro;
+  if (erro) return $('cf-err').textContent = erro;
   const { error } = await sb.from('rifa').update(nova).eq('id', true);
-  if (error) return campo('cf-err').textContent = error.message;
+  if (error) return $('cf-err').textContent = error.message;
   carregar((await sb.auth.getSession()).data.session);
 };
 

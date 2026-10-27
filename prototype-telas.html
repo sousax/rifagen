@@ -1,0 +1,315 @@
+<!doctype html>
+<!--
+  PROTÓTIPO DESCARTÁVEL — ticket "Telas e fluxo no celular".
+  Três variantes das telas do site da rifa, trocadas por ?variant=A|B|C (barra flutuante ou ← →).
+  Dados falsos em memória; recarregar zera tudo. Nada aqui vai para produção.
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTÓTIPO telas rifa</title>
+<style>
+  :root { --livre:#e5e7eb; --res:#fbbf24; --pago:#22c55e; --sel:#3b82f6; --tx:#111827; --mut:#6b7280; --bg:#f9fafb; --card:#fff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:16px/1.35 system-ui, sans-serif; color:var(--tx); background:var(--bg); max-width:480px; margin:0 auto; padding-bottom:150px; }
+  button { font:inherit; border:0; border-radius:10px; padding:10px 14px; background:#e5e7eb; cursor:pointer; }
+  button.pri { background:var(--tx); color:#fff; }
+  button.ok { background:var(--pago); color:#fff; }
+  button.wa { background:#25d366; color:#fff; }
+  input, select { font:inherit; width:100%; padding:10px; border:1px solid #d1d5db; border-radius:10px; background:#fff; }
+  label { display:block; font-size:13px; color:var(--mut); margin:10px 0 4px; }
+  h1 { font-size:20px; margin:0; } h2 { font-size:16px; margin:18px 0 8px; }
+  .row { display:flex; gap:8px; align-items:center; } .row > * { flex:1; }
+  .pad { padding:12px 16px; }
+  .card { background:var(--card); border-radius:14px; padding:12px; margin:8px 0; box-shadow:0 1px 2px #0001; }
+  .mut { color:var(--mut); font-size:13px; }
+  .money { font-size:22px; font-weight:700; }
+  .chip { display:inline-block; padding:3px 8px; border-radius:999px; font-size:13px; margin:2px; background:var(--livre); }
+  .chip.reservado { background:var(--res); } .chip.pago { background:var(--pago); color:#fff; }
+  .grid { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+  .n { aspect-ratio:1; padding:0; font-weight:600; background:var(--livre); }
+  .n.reservado { background:var(--res); } .n.pago { background:var(--pago); color:#fff; }
+  .n.sel { outline:3px solid var(--sel); background:#dbeafe; }
+  .n.dim { opacity:.25; }
+  .sheet-bg { position:fixed; inset:0; background:#0006; display:flex; align-items:flex-end; justify-content:center; z-index:20; }
+  .sheet { background:#fff; width:100%; max-width:480px; border-radius:18px 18px 0 0; padding:16px; max-height:90vh; overflow:auto; }
+  .bar { position:fixed; left:50%; transform:translateX(-50%); width:100%; max-width:480px; }
+  .err { color:#b91c1c; font-size:14px; margin-top:6px; }
+  .tabs { bottom:0; display:flex; background:#fff; border-top:1px solid #e5e7eb; z-index:10; }
+  .tabs button { flex:1; background:none; border-radius:0; padding:14px 0; color:var(--mut); }
+  .tabs button.on { color:var(--tx); font-weight:700; box-shadow:inset 0 3px var(--tx); }
+  .heat { display:grid; grid-template-columns:repeat(20,1fr); gap:2px; }
+  .heat i { aspect-ratio:1; background:var(--livre); border-radius:2px; }
+  .heat i.reservado { background:var(--res); } .heat i.pago { background:var(--pago); }
+  .prog { display:flex; height:10px; border-radius:5px; overflow:hidden; background:var(--livre); }
+  #proto-switch { position:fixed; bottom:72px; left:50%; transform:translateX(-50%); z-index:30; display:flex; gap:6px; align-items:center;
+    background:#7c3aed; color:#fff; border-radius:999px; padding:4px 6px; box-shadow:0 4px 14px #0004; font-size:13px; white-space:nowrap; }
+  #proto-switch button { background:#fff3; color:#fff; padding:4px 10px; border-radius:999px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="sheet"></div>
+<div id="proto-switch"></div>
+
+<script>
+// ---------- estado falso em memória (formato do modelo decidido: livre = sem linha) ----------
+const rifa = { total: 100, preco: 10, data: '2026-12-20', premios: ['Cesta de Natal', 'Air fryer', 'Panetone'] };
+let compradores = [
+  ['Tia Cida','5511987650001'],['Seu Jorge','5511987650002'],['Marina (vizinha)','5511987650003'],['Pedro primo','5511987650004'],
+  ['Dona Lurdes','5511987650005'],['Carlos trabalho','5511987650006'],['Bia','5511987650007'],['Rafael','5511987650008'],
+].map(([nome, tel], i) => ({ id: i + 1, nome, tel }));
+const numeros = new Map(); // numero -> { comprador_id, estado }
+[[1,[3,7,21],'pago'],[2,[10,11],'reservado'],[3,[33,34,35,36],'pago'],[4,[50],'reservado'],[5,[8,18,28,38,48],'pago'],
+ [5,[58],'reservado'],[6,[77,78],'reservado'],[7,[99],'pago'],[8,[42,43,44],'reservado'],[1,[12],'reservado']]
+  .forEach(([c, ns, estado]) => ns.forEach(n => numeros.set(n, { comprador_id: c, estado })));
+
+// ---------- regras (as mesmas decididas para o banco) ----------
+const brl = v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const comp = id => compradores.find(c => c.id === id);
+const estadoDe = n => numeros.get(n)?.estado || 'livre';
+const numsDe = id => [...numeros].filter(([, v]) => v.comprador_id === id).map(([n, v]) => ({ n, ...v })).sort((a, b) => a.n - b.n);
+const stats = () => {
+  let r = 0, p = 0; numeros.forEach(v => v.estado === 'pago' ? p++ : r++);
+  return { r, p, l: rifa.total - r - p, arrecadado: p * rifa.preco, receber: r * rifa.preco };
+};
+const soDigitos = t => { let d = t.replace(/\D/g, ''); if (d && !d.startsWith('55')) d = '55' + d; return d; };
+const parseNums = txt => {
+  const out = new Set();
+  for (const part of txt.split(/[\s,;]+/).filter(Boolean)) {
+    const m = part.match(/^(\d+)(?:-(\d+))?$/); if (!m) return { erro: `"${part}" não é número` };
+    const a = +m[1], b = +(m[2] || m[1]);
+    for (let i = Math.min(a, b); i <= Math.max(a, b); i++) out.add(i);
+  }
+  return { nums: [...out].sort((a, b) => a - b) };
+};
+// reserva atômica: um ocupado → nada salvo; telefone repetido reaproveita comprador
+function registrar(nums, nome, tel, estado) {
+  tel = soDigitos(tel);
+  if (!nums.length) return 'Escolha ao menos um número.';
+  if (!nome.trim() || tel.length < 12) return 'Nome e telefone (com DDD) são obrigatórios.';
+  const fora = nums.filter(n => n < 1 || n > rifa.total); if (fora.length) return `Fora da rifa: ${fora.join(', ')}`;
+  const ocup = nums.filter(n => numeros.has(n)); if (ocup.length) return `Já ocupados: ${ocup.join(', ')} — nada foi salvo.`;
+  let c = compradores.find(c => c.tel === tel);
+  if (!c) { c = { id: Math.max(0, ...compradores.map(c => c.id)) + 1, nome: nome.trim(), tel }; compradores.push(c); }
+  nums.forEach(n => numeros.set(n, { comprador_id: c.id, estado }));
+  return null;
+}
+const setEstado = (n, estado) => estado === 'livre' ? numeros.delete(n) : (numeros.get(n).estado = estado);
+const waLink = c => {
+  const ns = numsDe(c.id), res = ns.filter(x => x.estado === 'reservado');
+  const msg = `Oi ${c.nome}! Seus números da rifa (sorteio ${new Date(rifa.data + 'T12:00').toLocaleDateString('pt-BR')}): `
+    + ns.map(x => x.n).join(', ') + '.'
+    + (res.length ? ` Falta pagar ${brl(res.length * rifa.preco)} (${res.map(x => x.n).join(', ')}).` : ' Tudo pago, obrigado!');
+  return `https://wa.me/${c.tel}?text=${encodeURIComponent(msg)}`;
+};
+const busca = q => { q = q.toLowerCase().trim(); const d = q.replace(/\D/g, '');
+  return compradores.filter(c => !q || c.nome.toLowerCase().includes(q) || (d && c.tel.includes(d))); };
+
+// ---------- pedaços compartilhados (só formulários; layout é de cada variante) ----------
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+const datalist = () => `<datalist id="dl-nomes">${compradores.map(c => `<option value="${esc(c.nome)}">`).join('')}</datalist>`;
+const autofillTel = (nomeEl, telId) => { const c = compradores.find(c => c.nome === nomeEl.value); if (c) document.getElementById(telId).value = c.tel; };
+const configForm = () => `
+  <label>Total de números</label><input id="cf-total" type="number" value="${rifa.total}">
+  <label>Preço por número (R$)</label><input id="cf-preco" type="number" step="0.5" value="${rifa.preco}">
+  <label>Data do sorteio</label><input id="cf-data" type="date" value="${rifa.data}">
+  <label>Prêmios (um por linha, na ordem)</label>
+  <textarea id="cf-premios" rows="3" style="width:100%;font:inherit;padding:10px;border-radius:10px;border:1px solid #d1d5db">${esc(rifa.premios.join('\n'))}</textarea>
+  <div id="cf-err" class="err"></div>
+  <button class="pri" style="width:100%;margin-top:10px" onclick="salvarConfig()">Salvar</button>`;
+function salvarConfig() {
+  const total = +document.getElementById('cf-total').value, maior = Math.max(0, ...numeros.keys());
+  if (total < maior) return document.getElementById('cf-err').textContent = `O número ${maior} já está em uso; total mínimo é ${maior}.`;
+  Object.assign(rifa, { total, preco: +document.getElementById('cf-preco').value, data: document.getElementById('cf-data').value,
+    premios: document.getElementById('cf-premios').value.split('\n').map(s => s.trim()).filter(Boolean) });
+  fecharSheet(); render();
+}
+const abrirSheet = html => document.getElementById('sheet').innerHTML =
+  `<div class="sheet-bg" onclick="if(event.target===this)fecharSheet()"><div class="sheet">${html}</div></div>`;
+const fecharSheet = () => document.getElementById('sheet').innerHTML = '';
+
+// ======================= VARIANTE A — Grade primeiro =======================
+// Tela única: a grade é a casa. Toca em livres para selecionar várias → registra. Toca em ocupado → detalhe.
+const A = { nome: 'Grade primeiro', sel: new Set(), filtro: 'todos', q: '' };
+A.render = () => {
+  const s = stats(), hit = A.q ? new Set(busca(A.q).flatMap(c => numsDe(c.id).map(x => x.n))) : null;
+  let h = `<div class="pad">
+    <div class="row" style="justify-content:space-between"><h1>Rifa · ${brl(rifa.preco)}</h1>
+      <button style="flex:0" onclick="abrirSheet('<h2>Configurar rifa</h2>'+configForm())">⚙️</button></div>
+    <div class="row" style="margin:10px 0">
+      <div class="card"><div class="mut">Arrecadado</div><div class="money">${brl(s.arrecadado)}</div></div>
+      <div class="card"><div class="mut">A receber</div><div class="money">${brl(s.receber)}</div></div></div>
+    <input placeholder="Buscar comprador (nome ou telefone)" value="${esc(A.q)}" oninput="A.q=this.value;render();this.focus()" id="a-q">
+    <div class="row" style="margin:10px 0;gap:4px">${['todos', 'livre', 'reservado', 'pago'].map(f =>
+      `<button style="padding:6px 0;${A.filtro === f ? 'background:var(--tx);color:#fff' : ''}" onclick="A.filtro='${f}';render()">
+       ${{ todos: 'Todos', livre: `Livres ${s.l}`, reservado: `Reserv. ${s.r}`, pago: `Pagos ${s.p}` }[f]}</button>`).join('')}</div>
+    <div class="grid">`;
+  for (let n = 1; n <= rifa.total; n++) {
+    const e = estadoDe(n), dim = (A.filtro !== 'todos' && A.filtro !== e) || (hit && !hit.has(n));
+    h += `<button class="n ${e} ${A.sel.has(n) ? 'sel' : ''} ${dim ? 'dim' : ''}" onclick="A.toque(${n})">${n}</button>`;
+  }
+  h += `</div></div>`;
+  if (A.sel.size) h += `<div class="bar card row" style="bottom:0;margin:0;border-radius:14px 14px 0 0;z-index:10">
+    <span>${A.sel.size} selecionado(s)</span><button onclick="A.sel.clear();render()">Limpar</button>
+    <button class="pri" onclick="A.registrar()">Registrar</button></div>`;
+  return h;
+};
+A.toque = n => {
+  if (!numeros.has(n)) { A.sel.has(n) ? A.sel.delete(n) : A.sel.add(n); return render(); }
+  A.detalhe(numeros.get(n).comprador_id);
+};
+A.registrar = () => abrirSheet(`<h2>Registrar ${[...A.sel].sort((a, b) => a - b).join(', ')}</h2>${datalist()}
+  <label>Nome</label><input id="a-nome" list="dl-nomes" oninput="autofillTel(this,'a-tel')">
+  <label>Telefone</label><input id="a-tel" type="tel" placeholder="(11) 98765-4321">
+  <div id="a-err" class="err"></div>
+  <div class="row" style="margin-top:12px"><button onclick="A.salvar('reservado')">Reservar</button><button class="ok" onclick="A.salvar('pago')">Já pagou</button></div>`);
+A.salvar = estado => {
+  const err = registrar([...A.sel], document.getElementById('a-nome').value, document.getElementById('a-tel').value, estado);
+  if (err) return document.getElementById('a-err').textContent = err;
+  A.sel.clear(); fecharSheet(); render();
+};
+A.detalhe = id => {
+  const c = comp(id);
+  abrirSheet(`<h2>${esc(c.nome)}</h2><div class="mut">+${c.tel}</div>
+    ${numsDe(id).map(x => `<div class="row" style="margin-top:8px"><span class="chip ${x.estado}" style="flex:0">${x.n}</span>
+      <select onchange="setEstado(${x.n},this.value);A.detalhe(${id});render()">
+        ${['reservado', 'pago', 'livre'].map(e => `<option ${e === x.estado ? 'selected' : ''} value="${e}">${e === 'livre' ? 'liberar' : e}</option>`).join('')}
+      </select></div>`).join('') || '<p class="mut">Sem números.</p>'}
+    <a href="${waLink(c)}" target="_blank"><button class="wa" style="width:100%;margin-top:14px">WhatsApp</button></a>`);
+};
+
+// ======================= VARIANTE B — Compradores primeiro =======================
+// Abas embaixo. Casa = lista de pessoas. Venda é um passo a passo: quem → quais números → status.
+const B = { nome: 'Compradores primeiro', aba: 'comp', q: '', wiz: null };
+B.render = () => {
+  if (B.wiz) return B.wizard();
+  let h = `<div class="pad">`;
+  if (B.aba === 'comp') {
+    h += `<h1>Compradores</h1><input style="margin:10px 0" placeholder="Buscar nome ou telefone" value="${esc(B.q)}"
+      oninput="B.q=this.value;render();this.focus()" id="b-q">`;
+    h += busca(B.q).map(c => {
+      const ns = numsDe(c.id), deve = ns.filter(x => x.estado === 'reservado').length * rifa.preco;
+      return `<div class="card"><div class="row" style="justify-content:space-between"><b>${esc(c.nome)}</b>
+        <span class="mut" style="text-align:right">${deve ? 'deve ' + brl(deve) : 'em dia'}</span></div>
+        <div style="margin:6px 0">${ns.map(x => `<span class="chip ${x.estado}" onclick="setEstado(${x.n},'${x.estado === 'pago' ? 'reservado' : 'pago'}');render()">${x.n}</span>`).join('') || '<span class="mut">sem números</span>'}</div>
+        <div class="row">${deve ? `<button class="ok" onclick="numsDe(${c.id}).forEach(x=>setEstado(x.n,'pago'));render()">Pagou tudo</button>` : ''}
+          <button onclick="B.wiz={c:${c.id},nums:new Set(),passo:2};render()">+ números</button>
+          <a href="${waLink(c)}" target="_blank" style="flex:1"><button class="wa" style="width:100%">WhatsApp</button></a></div></div>`;
+    }).join('');
+    h += `<p class="mut">Toque num número para alternar reservado ⇄ pago.</p>
+      <button class="pri" style="position:fixed;right:16px;bottom:120px;border-radius:999px;padding:16px 20px;z-index:10;box-shadow:0 4px 12px #0003"
+        onclick="B.wiz={passo:1,nums:new Set()};render()">+ Nova venda</button>`;
+  } else if (B.aba === 'nums') {
+    const s = stats();
+    h += `<h1>Números</h1><p class="mut">${s.l} livres · ${s.r} reservados · ${s.p} pagos</p><div class="grid">`;
+    for (let n = 1; n <= rifa.total; n++) { const v = numeros.get(n);
+      h += `<button class="n ${estadoDe(n)}" onclick="${v ? `B.q='${esc(comp(v.comprador_id).nome)}';B.aba='comp';render()` : ''}">${n}</button>`; }
+    h += `</div>`;
+  } else {
+    const s = stats();
+    h += `<h1>Rifa</h1><div class="card"><div class="mut">Arrecadado</div><div class="money">${brl(s.arrecadado)}</div>
+      <div class="mut" style="margin-top:6px">A receber</div><div class="money">${brl(s.receber)}</div>
+      <div class="mut" style="margin-top:6px">Se vender tudo</div><div>${brl(rifa.total * rifa.preco)}</div></div>
+      <h2>Configuração</h2>${configForm()}`;
+  }
+  h += `</div><div class="bar tabs">${[['comp', '👥 Compradores'], ['nums', '🔢 Números'], ['rifa', '🎟️ Rifa']].map(([k, t]) =>
+    `<button class="${B.aba === k ? 'on' : ''}" onclick="B.aba='${k}';render()">${t}</button>`).join('')}</div>`;
+  return h;
+};
+B.wizard = () => {
+  const w = B.wiz;
+  let h = `<div class="pad"><div class="row" style="justify-content:space-between"><h1>Nova venda · passo ${w.passo}/3</h1>
+    <button style="flex:0" onclick="B.wiz=null;render()">✕</button></div>`;
+  if (w.passo === 1) h += `${datalist()}<label>Nome</label><input id="b-nome" list="dl-nomes" oninput="autofillTel(this,'b-tel')" value="${esc(w.nome || '')}">
+    <label>Telefone</label><input id="b-tel" type="tel" value="${esc(w.tel || '')}">
+    <button class="pri" style="width:100%;margin-top:14px" onclick="B.wiz.nome=document.getElementById('b-nome').value;B.wiz.tel=document.getElementById('b-tel').value;B.wiz.passo=2;render()">Escolher números →</button>`;
+  if (w.passo === 2) {
+    const quem = w.c ? comp(w.c).nome : w.nome;
+    h += `<p class="mut">Para <b>${esc(quem)}</b> · toque nos livres</p><div class="grid">`;
+    for (let n = 1; n <= rifa.total; n++) { const e = estadoDe(n);
+      h += `<button class="n ${e} ${w.nums.has(n) ? 'sel' : ''}" ${e !== 'livre' ? 'disabled' : ''}
+        onclick="B.wiz.nums.has(${n})?B.wiz.nums.delete(${n}):B.wiz.nums.add(${n});render()">${n}</button>`; }
+    h += `</div><button class="pri bar" style="bottom:0;border-radius:0;padding:16px;z-index:10" ${w.nums.size ? '' : 'disabled'}
+      onclick="B.wiz.passo=3;render()">${w.nums.size} número(s) · ${brl(w.nums.size * rifa.preco)} →</button>`;
+  }
+  if (w.passo === 3) {
+    const quem = w.c ? comp(w.c) : { nome: w.nome, tel: w.tel };
+    h += `<div class="card"><b>${esc(quem.nome)}</b><div>${[...w.nums].sort((a, b) => a - b).map(n => `<span class="chip">${n}</span>`).join('')}</div>
+      <div class="money">${brl(w.nums.size * rifa.preco)}</div></div><div id="b-err" class="err"></div>
+      <div class="row"><button onclick="B.fim('reservado')">Vai pagar depois</button><button class="ok" onclick="B.fim('pago')">Já pagou</button></div>`;
+  }
+  return h + `</div>`;
+};
+B.fim = estado => {
+  const quem = B.wiz.c ? comp(B.wiz.c) : { nome: B.wiz.nome, tel: B.wiz.tel };
+  const err = registrar([...B.wiz.nums], quem.nome, quem.tel, estado);
+  if (err) return document.getElementById('b-err').textContent = err;
+  B.wiz = null; B.q = quem.nome; render();
+};
+
+// ======================= VARIANTE C — Caixa (uma página só) =======================
+// Sem navegação: dinheiro no topo, venda digitando números, lista "a cobrar" pronta pra WhatsApp.
+const C = { nome: 'Caixa / página única', q: '' };
+C.render = () => {
+  const s = stats(), pct = x => (x / rifa.total * 100) + '%', vis = new Set(busca(C.q).map(c => c.id));
+  const grupo = estado => compradores.filter(c => vis.has(c.id)).map(c => ({ c, ns: numsDe(c.id).filter(x => x.estado === estado) })).filter(g => g.ns.length);
+  let h = `<div class="pad">
+    <div class="mut">${esc(rifa.premios[0] || '')}${rifa.premios.length > 1 ? ` +${rifa.premios.length - 1} prêmios` : ''} · sorteio ${new Date(rifa.data + 'T12:00').toLocaleDateString('pt-BR')}</div>
+    <div class="row" style="margin:8px 0"><div><div class="mut">No bolso</div><div class="money" style="font-size:30px">${brl(s.arrecadado)}</div></div>
+      <div><div class="mut">A receber</div><div class="money" style="color:#b45309">${brl(s.receber)}</div></div></div>
+    <div class="prog"><div style="width:${pct(s.p)};background:var(--pago)"></div><div style="width:${pct(s.r)};background:var(--res)"></div></div>
+    <div class="mut" style="margin-top:4px">${s.p} pagos · ${s.r} reservados · ${s.l} livres</div>
+
+    <h2>Nova venda</h2><div class="card">${datalist()}
+      <div class="row"><input id="c-nome" list="dl-nomes" placeholder="Nome" oninput="autofillTel(this,'c-tel')"><input id="c-tel" type="tel" placeholder="Telefone"></div>
+      <input id="c-nums" style="margin-top:8px" placeholder="Números: 12, 15-18" inputmode="numeric" oninput="C.preview()">
+      <div id="c-prev" class="mut" style="margin-top:6px"></div><div id="c-err" class="err"></div>
+      <div class="row" style="margin-top:8px"><button onclick="C.salvar('reservado')">Reservar</button><button class="ok" onclick="C.salvar('pago')">Já pagou</button></div></div>
+
+    <input style="margin-top:14px" placeholder="🔍 Buscar nome ou telefone" value="${esc(C.q)}" oninput="C.q=this.value;render();this.focus()" id="c-q">
+    <h2>A cobrar (${s.r})</h2>
+    ${grupo('reservado').map(({ c, ns }) => `<div class="card"><div class="row" style="justify-content:space-between"><b>${esc(c.nome)}</b>
+        <b style="text-align:right">${brl(ns.length * rifa.preco)}</b></div>
+      <div>${ns.map(x => `<span class="chip reservado">${x.n}</span>`).join('')}</div>
+      <div class="row" style="margin-top:6px"><button class="ok" onclick="${ns.map(x => `setEstado(${x.n},'pago')`).join(';')};render()">Recebi</button>
+        <a href="${waLink(c)}" target="_blank" style="flex:1"><button class="wa" style="width:100%">Cobrar</button></a></div></div>`).join('') || '<p class="mut">Ninguém devendo 🎉</p>'}
+    <details><summary><b>Pagos (${s.p})</b></summary>
+      ${grupo('pago').map(({ c, ns }) => `<div class="card row"><span>${esc(c.nome)}</span><span>${ns.map(x =>
+        `<span class="chip pago" onclick="if(confirm('Voltar ${x.n} para reservado?')){setEstado(${x.n},'reservado');render()}">${x.n}</span>`).join('')}</span></div>`).join('')}</details>
+
+    <h2>Mapa dos números</h2><div class="heat">${Array.from({ length: rifa.total }, (_, i) => `<i class="${estadoDe(i + 1)}" title="${i + 1}"></i>`).join('')}</div>
+    <details style="margin-top:16px"><summary><b>⚙️ Configurar rifa</b></summary>${configForm()}</details></div>`;
+  return h;
+};
+C.preview = () => {
+  const { nums, erro } = parseNums(document.getElementById('c-nums').value), el = document.getElementById('c-prev');
+  if (erro) return el.textContent = erro;
+  el.innerHTML = nums.map(n => `<span class="chip ${estadoDe(n)}">${n}${numeros.has(n) ? ' ocupado' : ''}</span>`).join('') + (nums.length ? ` = ${brl(nums.length * rifa.preco)}` : '');
+};
+C.salvar = estado => {
+  const { nums, erro } = parseNums(document.getElementById('c-nums').value);
+  const err = erro || registrar(nums || [], document.getElementById('c-nome').value, document.getElementById('c-tel').value, estado);
+  if (err) return document.getElementById('c-err').textContent = err;
+  render();
+};
+
+// ---------- switcher (só do protótipo) ----------
+const V = { A, B, C }, keys = Object.keys(V);
+let cur = new URLSearchParams(location.search).get('variant') || 'A'; if (!V[cur]) cur = 'A';
+function go(d) { cur = keys[(keys.indexOf(cur) + d + keys.length) % keys.length]; history.replaceState(null, '', '?variant=' + cur); fecharSheet(); render(); }
+function render() {
+  const focused = document.activeElement?.id, pos = document.activeElement?.selectionStart;
+  document.getElementById('app').innerHTML = V[cur].render();
+  document.getElementById('proto-switch').innerHTML = `<button onclick="go(-1)">←</button><span>${cur} · ${V[cur].nome}</span><button onclick="go(1)">→</button>`;
+  if (focused) { const el = document.getElementById(focused); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch {} } }
+}
+addEventListener('keydown', e => {
+  if (e.target.closest('input,textarea,select,[contenteditable]')) return;
+  if (e.key === 'ArrowLeft') go(-1); if (e.key === 'ArrowRight') go(1);
+});
+render();
+</script>
+</body>
+</html>

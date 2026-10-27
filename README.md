@@ -20,21 +20,11 @@ Troque `<usuario>` pelo seu usuário do GitHub. A URL do site fica `https://<usu
 1. [supabase.com/dashboard](https://supabase.com/dashboard) → **New project** → plano Free, região São Paulo. Guarde a senha do banco.
 2. **SQL Editor** → **New query** → cole todo o `schema.sql` → **Run**. Deve terminar com "Success. No rows returned".
 
-### 2. Login Google
+### 2. Login (e-mail e senha)
 
-1. Supabase → **Authentication** → **Sign In / Providers** → **Google**: copie a **Callback URL** (`https://<ref>.supabase.co/auth/v1/callback`). Deixe a aba aberta.
-2. [console.cloud.google.com](https://console.cloud.google.com) → crie um projeto (ex.: "rifa").
-3. **Google Auth Platform** → **Get started** (tela de consentimento): nome "Rifa", seu e-mail de suporte, público **External**, seu e-mail de contato. **Não envie logo** (logo exige verificação).
-4. **Audience**: deixe em **Testing** e, em **Test users**, adicione os e-mails dos organizadores.
-5. **Data Access**: não adicione escopos (ficam só `openid`, `email`, `profile`).
-6. **Clients** → **Create client** → tipo **Web application**:
-   - *Authorized JavaScript origins*: `https://<usuario>.github.io` e `http://localhost:8000`
-   - *Authorized redirect URIs*: a Callback URL do passo 2.1
-   - **Create** e copie o **Client ID** e o **Client secret**.
-7. De volta ao Supabase (provider Google): cole Client ID e Client secret, ligue **Enable Sign in with Google** → **Save**.
-8. Supabase → **Authentication** → **URL Configuration**:
-   - *Site URL*: `https://<usuario>.github.io/rifagen/`
-   - *Redirect URLs* → **Add URL**: `https://<usuario>.github.io/rifagen/**` e `http://localhost:8000/**`
+1. Supabase → **Authentication** → **Sign In / Providers** → **Email**: deixe ligado e **desligue** *Allow new users to sign up* (ninguém se cadastra pelo site).
+2. **Authentication** → **Users** → **Add user** → **Create new user**: e-mail e senha (mínimo 6 caracteres), marque **Auto Confirm User**. Não coloque a senha no repo, que é público.
+3. **Authentication** → **URL Configuration** → *Site URL*: `https://<usuario>.github.io/rifagen/`.
 
 ### 3. Organizadores e a rifa
 
@@ -67,7 +57,7 @@ Commit e push. São públicas por design; quem protege os dados é a RLS. **Nunc
 
 GitHub → repo → **Settings** → **Pages** → *Source*: **Deploy from a branch** → branch `main`, pasta `/ (root)` → **Save**. Em ~1 min o site está em `https://<usuario>.github.io/rifagen/`.
 
-Conferir: abrir no celular, entrar com Google, ver a grade; fechar e reabrir (continua logado); entrar com um e-mail fora da lista (vê "Sem acesso").
+Conferir: abrir no celular, entrar com e-mail e senha, ver a grade; fechar e reabrir (continua logado); um usuário fora de `organizadores` vê "Sem acesso".
 
 ### 6. Conferir a segurança e o ao vivo
 

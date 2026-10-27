@@ -55,8 +55,12 @@
 
   <section id="tela-login" hidden>
     <h1>Rifa</h1>
-    <p class="mut">Entre com a sua conta Google.</p>
-    <button class="pri" id="entrar">Entrar com Google</button>
+    <form id="entrar">
+      <p><input type="email" name="email" placeholder="E-mail" autocomplete="username" required></p>
+      <p><input type="password" name="senha" placeholder="Senha" autocomplete="current-password" required></p>
+      <p class="mut" id="erro-login" hidden>E-mail ou senha errados.</p>
+      <button class="pri">Entrar</button>
+    </form>
   </section>
 
   <section id="tela-sem-acesso" hidden>
@@ -447,8 +451,13 @@ async function sortearProximo() {
 // Durante o giro o painel não fecha (Esc).
 $('painel-sorteio').oncancel = e => { if ($('sorteio-fechar').hidden) e.preventDefault(); };
 
-document.getElementById('entrar').onclick = () =>
-  sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
+document.getElementById('entrar').onsubmit = async e => {
+  e.preventDefault();
+  const f = e.target;
+  const { error } = await sb.auth.signInWithPassword({ email: f.email.value.trim(), password: f.senha.value });
+  $('erro-login').hidden = !error;
+  if (!error) f.reset();
+};
 for (const b of document.querySelectorAll('.sair')) b.onclick = () => sb.auth.signOut();
 
 // Backup: as 4 tabelas inteiras num JSON. <a download> + Blob baixa também no celular.
@@ -466,7 +475,7 @@ document.getElementById('baixar-backup').onclick = async () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
 
-// Dispara INITIAL_SESSION ao abrir, SIGNED_IN na volta do Google e SIGNED_OUT ao sair.
+// Dispara INITIAL_SESSION ao abrir, SIGNED_IN ao entrar e SIGNED_OUT ao sair.
 // setTimeout: não chamar o supabase de dentro do callback (trava o lock de auth).
 sb.auth.onAuthStateChange((evento, session) => {
   if (evento !== 'TOKEN_REFRESHED') setTimeout(() => carregar(session));

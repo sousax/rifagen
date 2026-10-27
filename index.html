@@ -31,6 +31,10 @@
   hr { border:0; border-top:1px solid #e5e7eb; margin:16px 0; }
   h2 { font-size:16px; margin:0 0 8px; }
   .err { color:#b91c1c; font-size:14px; margin-top:6px; }
+  .chip { display:inline-block; min-width:44px; text-align:center; padding:3px 8px; border-radius:999px; font-size:13px; background:var(--livre); }
+  .chip.reservado { background:var(--res); } .chip.pago { background:var(--pago); color:#fff; }
+  select { font:inherit; flex:1; padding:8px; border:1px solid #d1d5db; border-radius:10px; background:#fff; }
+  a.wa { display:block; text-align:center; text-decoration:none; margin-top:14px; border-radius:10px; padding:10px 14px; background:#25d366; color:#fff; }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -83,6 +87,15 @@
         <button value="" formnovalidate style="width:100%">Cancelar</button>
       </form>
     </dialog>
+
+    <dialog id="painel-comprador">
+      <h2 id="comp-nome"></h2>
+      <div class="mut" id="comp-tel"></div>
+      <div id="comp-numeros"></div>
+      <div class="err" id="comp-err"></div>
+      <a class="wa" id="comp-wa" target="_blank" rel="noopener">WhatsApp</a>
+      <form method="dialog"><button style="width:100%;margin-top:8px">Fechar</button></form>
+    </dialog>
   </section>
 
   <section id="tela-config" hidden>
@@ -105,7 +118,7 @@
 
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
-import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao } from './rifa.js';
+import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao, linkWhatsApp, mensagemCobranca } from './rifa.js';
 
 // Públicas por design: a proteção é a RLS (schema.sql). Ver README, passo 4.
 const SUPABASE_URL = 'https://SEU-PROJETO.supabase.co';
@@ -127,7 +140,7 @@ async function carregar(session) {
   // ponytail: numeros sem paginação; o Supabase devolve até 1000 linhas por request, pagine se a rifa passar disso.
   const [rifa, numeros, compradores] = await Promise.all([
     sb.from('rifa').select('total, preco, data_sorteio, premios').maybeSingle(),
-    sb.from('numeros').select('numero, estado'),
+    sb.from('numeros').select('numero, estado, comprador_id'),
     sb.from('compradores').select('id, nome, telefone').order('nome'),
   ]);
   const erro = rifa.error || numeros.error || compradores.error;
@@ -149,6 +162,7 @@ function desenhar() {
   $('titulo').textContent = `Rifa · ${brl(rifa.preco)}`;
   $('arrecadado').textContent = brl(t.arrecadado);
   $('receber').textContent = brl(t.receber);
+  const dono = new Map(numeros.map(n => [n.numero, n.comprador_id]));
   $('grade').replaceChildren(...grade(rifa.total, numeros).map(({ numero, estado }) => {
     const b = document.createElement('button');
     b.className = `n ${estado}${sel.has(numero) ? ' sel' : ''}`;
@@ -157,12 +171,51 @@ function desenhar() {
     if (estado === 'livre') {
       b.setAttribute('aria-pressed', sel.has(numero));
       b.onclick = () => { sel.has(numero) ? sel.delete(numero) : sel.add(numero); desenhar(); };
+    } else {
+      b.onclick = () => { compradorAberto = dono.get(numero); $('comp-err').textContent = ''; desenharComprador(); $('painel-comprador').showModal(); };
     }
     return b;
   }));
   $('barra').hidden = !sel.size;
   $('qtd-sel').textContent = `${sel.size} selecionado${sel.size > 1 ? 's' : ''}`;
   $('nomes').replaceChildren(...compradores.map(c => new Option('', c.nome)));
+  if ($('painel-comprador').open) desenharComprador();
+}
+
+// Painel do comprador: todos os números dele, cada um com reservado / pago / liberar.
+let compradorAberto; // id do comprador no painel
+function desenharComprador() {
+  const c = dados.compradores.find(c => c.id === compradorAberto);
+  if (!c) return $('painel-comprador').close(); // sumiu (ex.: apagado no painel do Supabase)
+  const meus = dados.numeros.filter(n => n.comprador_id === c.id).sort((a, b) => a.numero - b.numero);
+  $('comp-nome').textContent = c.nome;
+  $('comp-tel').textContent = '+' + c.telefone;
+  $('comp-numeros').replaceChildren(...meus.map(n => {
+    const linha = document.createElement('div');
+    linha.className = 'row';
+    linha.style.marginTop = '8px';
+    const chip = document.createElement('span');
+    chip.className = `chip ${n.estado}`;
+    chip.textContent = n.numero;
+    const s = document.createElement('select');
+    s.setAttribute('aria-label', `Estado do número ${n.numero}`);
+    s.append(new Option('reservado', 'reservado'), new Option('pago', 'pago'), new Option('liberar', 'livre'));
+    s.value = n.estado;
+    s.onchange = () => mudarEstado(n.numero, s.value);
+    linha.append(chip, s);
+    return linha;
+  }));
+  if (!meus.length) $('comp-numeros').innerHTML = '<p class="mut">Sem números.</p>';
+  $('comp-wa').href = linkWhatsApp(c.telefone,
+    mensagemCobranca({ nome: c.nome, numeros: meus, preco: dados.rifa.preco, dataSorteio: dados.rifa.data_sorteio }));
+}
+
+// Liberar = apagar a linha; o comprador continua cadastrado.
+async function mudarEstado(numero, estado) {
+  const q = sb.from('numeros');
+  const { error } = estado === 'livre' ? await q.delete().eq('numero', numero) : await q.update({ estado }).eq('numero', numero);
+  $('comp-err').textContent = error ? error.message : '';
+  await carregar((await sb.auth.getSession()).data.session); // grade, painel e comprador redesenhados
 }
 
 $('limpar').onclick = () => { sel.clear(); desenhar(); };

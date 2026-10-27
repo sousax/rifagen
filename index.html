@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rifa</title>
+<style>
+  :root { --livre:#e5e7eb; --res:#fbbf24; --pago:#22c55e; --tx:#111827; --mut:#6b7280; --bg:#f9fafb; }
+  * { box-sizing:border-box; }
+  body { margin:0 auto; max-width:480px; font:16px/1.35 system-ui, sans-serif; color:var(--tx); background:var(--bg); }
+  button { font:inherit; border:0; border-radius:10px; padding:10px 14px; background:#e5e7eb; cursor:pointer; }
+  button.pri { background:var(--tx); color:#fff; }
+  h1 { font-size:20px; margin:0; }
+  .pad { padding:12px 16px; }
+  .row { display:flex; gap:8px; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .mut { color:var(--mut); font-size:13px; }
+  .grid { display:grid; grid-template-columns:repeat(5, 1fr); gap:6px; }
+  .n { aspect-ratio:1; padding:0; font-weight:600; background:var(--livre); }
+  .n.reservado { background:var(--res); } .n.pago { background:var(--pago); color:#fff; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main class="pad">
+  <section id="tela-carregando"><p class="mut">Carregando…</p></section>
+
+  <section id="tela-login" hidden>
+    <h1>Rifa</h1>
+    <p class="mut">Entre com a sua conta Google.</p>
+    <button class="pri" id="entrar">Entrar com Google</button>
+  </section>
+
+  <section id="tela-sem-acesso" hidden>
+    <h1>Sem acesso</h1>
+    <p class="mut"><span class="email"></span> não está na lista de organizadores.</p>
+    <button class="sair">Sair</button>
+  </section>
+
+  <section id="tela-grade" hidden>
+    <div class="row">
+      <h1 id="titulo">Rifa</h1>
+      <button class="sair">Sair</button>
+    </div>
+    <div class="grid" id="grade"></div>
+  </section>
+</main>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+import { grade } from './rifa.js';
+
+// Públicas por design: a proteção é a RLS (schema.sql). Ver README, passo 4.
+const SUPABASE_URL = 'https://SEU-PROJETO.supabase.co';
+const SUPABASE_ANON_KEY = 'SUA-CHAVE-ANON';
+
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY); // sessão fica no localStorage
+const brl = v => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+function mostrar(id) {
+  for (const s of document.querySelectorAll('main > section')) s.hidden = s.id !== id;
+}
+
+async function carregar(session) {
+  if (!session) return mostrar('tela-login');
+  // ponytail: numeros sem paginação; o Supabase devolve até 1000 linhas por request, pagine se a rifa passar disso.
+  const [rifa, numeros] = await Promise.all([
+    sb.from('rifa').select('total, preco').maybeSingle(),
+    sb.from('numeros').select('numero, estado'),
+  ]);
+  if (rifa.error || numeros.error) return alert((rifa.error || numeros.error).message);
+  if (!rifa.data) { // RLS esconde tudo de quem não é organizador
+    for (const el of document.querySelectorAll('.email')) el.textContent = session.user.email;
+    return mostrar('tela-sem-acesso');
+  }
+  document.getElementById('titulo').textContent = `Rifa · ${brl(rifa.data.preco)}`;
+  document.getElementById('grade').replaceChildren(...grade(rifa.data.total, numeros.data).map(({ numero, estado }) => {
+    const b = document.createElement('button');
+    b.className = `n ${estado}`;
+    b.textContent = numero;
+    b.setAttribute('aria-label', `${numero} ${estado}`);
+    return b;
+  }));
+  mostrar('tela-grade');
+}
+
+document.getElementById('entrar').onclick = () =>
+  sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
+for (const b of document.querySelectorAll('.sair')) b.onclick = () => sb.auth.signOut();
+
+// Dispara INITIAL_SESSION ao abrir, SIGNED_IN na volta do Google e SIGNED_OUT ao sair.
+// setTimeout: não chamar o supabase de dentro do callback (trava o lock de auth).
+sb.auth.onAuthStateChange((evento, session) => {
+  if (evento !== 'TOKEN_REFRESHED') setTimeout(() => carregar(session));
+});
+</script>
+</body>
+</html>

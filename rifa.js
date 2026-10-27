@@ -35,3 +35,30 @@ export function validarConfiguracao({ total, preco }, numeros) {
   if (total < maior) return `O total não pode ser menor que ${maior}, o maior número em uso.`;
   return null;
 }
+
+// Posições (1 = 1º prêmio) ainda sem ganhador, na ordem do sorteio: do último ao 1º.
+// Sorteio interrompido continua do primeiro item desta lista.
+export function premiosPendentes(premios, ganhadores) {
+  const feitos = new Set(ganhadores.map(g => g.posicao));
+  return premios.map((_, i) => i + 1).filter(p => !feitos.has(p)).reverse();
+}
+
+// Números que concorrem: pagos que ainda não ganharam (um número ganha no máximo um prêmio).
+export function concorrentes(numeros, ganhadores) {
+  const premiados = new Set(ganhadores.map(g => g.numero));
+  return numeros.filter(n => n.estado === 'pago' && !premiados.has(n.numero)).map(n => n.numero).sort((a, b) => a - b);
+}
+
+// Índice uniforme em 0..n-1. ponytail: módulo de um uint32 tem viés < n/2³², desprezível para uma rifa.
+const aleatorioCripto = n => crypto.getRandomValues(new Uint32Array(1))[0] % n;
+
+// Número sorteado entre os concorrentes, ou null se não há nenhum. `aleatorio(n)` devolve 0..n-1.
+export function sortear(numeros, ganhadores, aleatorio = aleatorioCripto) {
+  const c = concorrentes(numeros, ganhadores);
+  return c.length ? c[aleatorio(c.length)] : null;
+}
+
+// Telefone já normalizado (só dígitos com 55).
+export function linkGanhador(telefone, numero, premio) {
+  return `https://wa.me/${telefone}?text=${encodeURIComponent(`Seu número ${numero} ganhou o ${premio}!`)}`;
+}

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao } from './rifa.js';
+import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao, premiosPendentes, concorrentes, sortear, linkGanhador } from './rifa.js';
 
 test('grade lista 1..total; sem linha é livre, com linha usa o estado dela', () => {
   const numeros = [
@@ -65,4 +65,42 @@ test('validarConfiguracao recusa total e preço não positivos ou inválidos', (
   assert.equal(validarConfiguracao({ total: 10, preco: -5 }, []), preco);
   assert.equal(validarConfiguracao({ total: 10, preco: NaN }, []), preco);
   assert.equal(validarConfiguracao({ total: 10, preco: 2.5 }, []), null);
+});
+
+test('premiosPendentes: posições sem ganhador, do último prêmio ao 1º', () => {
+  const premios = ['TV', 'Bicicleta', 'Cesta'];
+  assert.deepEqual(premiosPendentes(premios, []), [3, 2, 1]);
+  // sorteio interrompido depois do 3º: continua do 2º
+  assert.deepEqual(premiosPendentes(premios, [{ posicao: 3, numero: 7 }]), [2, 1]);
+  assert.deepEqual(premiosPendentes(premios, [
+    { posicao: 1, numero: 2 }, { posicao: 2, numero: 5 }, { posicao: 3, numero: 7 },
+  ]), []);
+});
+
+test('sortear: só pagos sem prêmio concorrem; reservados e já premiados ficam fora', () => {
+  const numeros = [
+    { numero: 1, estado: 'pago' },
+    { numero: 2, estado: 'reservado' },
+    { numero: 3, estado: 'pago' },
+    { numero: 4, estado: 'pago' },
+  ];
+  const ganhadores = [{ posicao: 2, numero: 3 }];
+  assert.deepEqual(concorrentes(numeros, ganhadores), [1, 4]);
+  const vistos = [];
+  const primeiro = n => { vistos.push(n); return 0; };
+  const ultimo = n => n - 1;
+  assert.equal(sortear(numeros, ganhadores, primeiro), 1);
+  assert.equal(sortear(numeros, ganhadores, ultimo), 4);
+  assert.deepEqual(vistos, [2]); // o aleatório escolhe entre 2 concorrentes
+  assert.equal(sortear([{ numero: 2, estado: 'reservado' }], [], primeiro), null);
+});
+
+test('sortear sem aleatório injetado usa crypto e devolve um concorrente', () => {
+  const numeros = [{ numero: 5, estado: 'pago' }, { numero: 9, estado: 'pago' }];
+  for (let i = 0; i < 20; i++) assert.ok([5, 9].includes(sortear(numeros, [])));
+});
+
+test('linkGanhador abre o WhatsApp do comprador com "Seu número X ganhou o <prêmio>!"', () => {
+  assert.equal(linkGanhador('5511987654321', 7, 'TV & som'),
+    'https://wa.me/5511987654321?text=Seu%20n%C3%BAmero%207%20ganhou%20o%20TV%20%26%20som!');
 });

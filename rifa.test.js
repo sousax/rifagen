@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao } from './rifa.js';
+import { grade, totais, normalizarTelefone, nomeBackup, validarConfiguracao, linkWhatsApp, mensagemCobranca } from './rifa.js';
 
 test('grade lista 1..total; sem linha é livre, com linha usa o estado dela', () => {
   const numeros = [
@@ -65,4 +65,26 @@ test('validarConfiguracao recusa total e preço não positivos ou inválidos', (
   assert.equal(validarConfiguracao({ total: 10, preco: -5 }, []), preco);
   assert.equal(validarConfiguracao({ total: 10, preco: NaN }, []), preco);
   assert.equal(validarConfiguracao({ total: 10, preco: 2.5 }, []), null);
+});
+
+test('linkWhatsApp abre a conversa com a mensagem codificada', () => {
+  assert.equal(linkWhatsApp('5511987654321', 'Oi Ana! Nº 7 & 8?'),
+    'https://wa.me/5511987654321?text=Oi%20Ana!%20N%C2%BA%207%20%26%208%3F');
+});
+
+test('mensagemCobranca lista os números, a data do sorteio e quanto falta pagar', () => {
+  const numeros = [{ numero: 12, estado: 'reservado' }, { numero: 3, estado: 'pago' }, { numero: 7, estado: 'reservado' }];
+  assert.equal(mensagemCobranca({ nome: 'Ana', numeros, preco: 10, dataSorteio: '2026-12-24' }),
+    'Oi Ana! Seus números da rifa (sorteio 24/12/2026): 3, 7, 12. Falta pagar R$ 20,00 (7, 12).');
+});
+
+test('mensagemCobranca diz "tudo pago" quando não há reservados', () => {
+  const numeros = [{ numero: 5, estado: 'pago' }, { numero: 2, estado: 'pago' }];
+  assert.equal(mensagemCobranca({ nome: 'Bia', numeros, preco: 12.5, dataSorteio: '2026-01-05' }),
+    'Oi Bia! Seus números da rifa (sorteio 05/01/2026): 2, 5. Tudo pago, obrigado!');
+});
+
+test('mensagemCobranca sem data do sorteio omite a data', () => {
+  assert.equal(mensagemCobranca({ nome: 'Bia', numeros: [{ numero: 1, estado: 'pago' }], preco: 10, dataSorteio: null }),
+    'Oi Bia! Seus números da rifa: 1. Tudo pago, obrigado!');
 });

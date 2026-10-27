@@ -35,3 +35,18 @@ export function validarConfiguracao({ total, preco }, numeros) {
   if (total < maior) return `O total não pode ser menor que ${maior}, o maior número em uso.`;
   return null;
 }
+
+// Conversa no WhatsApp com a mensagem pronta. Telefone já normalizado (só dígitos com 55).
+export function linkWhatsApp(telefone, mensagem) {
+  return `https://wa.me/${telefone}?text=${encodeURIComponent(mensagem)}`;
+}
+
+// Cobrança: números do comprador, data do sorteio ('AAAA-MM-DD' ou null) e quanto falta pagar ou "tudo pago".
+export function mensagemCobranca({ nome, numeros, preco, dataSorteio }) {
+  const lista = ns => ns.map(n => n.numero).sort((a, b) => a - b).join(', ');
+  const reservados = numeros.filter(n => n.estado === 'reservado');
+  const data = dataSorteio ? ` (sorteio ${dataSorteio.split('-').reverse().join('/')})` : '';
+  const falta = (reservados.length * preco).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  return `Oi ${nome}! Seus números da rifa${data}: ${lista(numeros)}.`
+    + (reservados.length ? ` Falta pagar ${falta} (${lista(reservados)}).` : ' Tudo pago, obrigado!');
+}
